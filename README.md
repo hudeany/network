@@ -1,5 +1,15 @@
-# network
-Java Network Utilities (HTTP / WakeOnLan / TLS-Cert-Check))
+# Network
+Java Network Utilities (HTTP Requests / WakeOnLan / TLS-Cert-Check))
+
+This HttpRequest Utility can check the TLS server certificate
+- by default system trusted KeyStore
+- by defined KeyStore file in PKCS12(.p12) or JKS(.jks) format
+- accept any server TLS certificate for non-productive test stages
+
+HttpRequest can contain URL and POST parameters and also Cookie data.
+File upload and download is supported.
+BasicAuth and other Header, like UserAgent, data is supported.
+Timeouts can be set for connecting and for request execution separately.
 
 ## Basic HTTP Request:
 ```
