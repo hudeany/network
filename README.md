@@ -1,7 +1,7 @@
 # network
 Java Network Utilities (HTTP / WakeOnLan / TLS-Cert-Check))
 
-## Basic usage:
+## Basic HTTP Request:
 ```
 import java.io.File;
 import java.net.InetSocketAddress;
@@ -48,4 +48,10 @@ public class SimpleTest {
 		}
 	}
 }
+```
+
+## Wake On LAN (WOL):
+```
+String macAddressString = "00:80:41:AE:FD:7E";
+NetworkUtilities.wakeOnLanPing(macAddressString)
 ```
