@@ -192,8 +192,7 @@ public class NetworkUtilities {
 				}
 			}
 			return false;
-		} catch (final SocketException e) {
-			e.printStackTrace();
+		} catch (@SuppressWarnings("unused") final SocketException e) {
 			return false;
 		}
 	}
