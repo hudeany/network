@@ -74,15 +74,30 @@ public class NetworkUtilities {
 
 	private static final Pattern DOMAIN_NAME_PATTERN = Pattern.compile(DOMAIN_NAME_REGEX);
 
+	/**
+	 * Connection test with 2 seconds default timeout
+	 *
+	 * @param hostname
+	 * @param port
+	 * @return
+	 * @throws Exception
+	 */
 	public static boolean testConnection(final String hostname, final int port) throws Exception {
+		return testConnection(hostname, port, 2);
+	}
+
+	public static boolean testConnection(final String hostname, final int port, final int timeoutSeconds) throws Exception {
 		try (Socket socket = new Socket()) {
 			final InetSocketAddress endPoint = new InetSocketAddress(hostname, port);
-			final int timeout = 2000; // 2 Sekunden
 			if (endPoint.isUnresolved()) {
 				throw new Exception("Cannot resolve hostname '" + hostname + "'");
 			} else {
 				try {
-					socket.connect(endPoint, timeout);
+					if (timeoutSeconds < 1) {
+						socket.connect(endPoint);
+					} else {
+						socket.connect(endPoint, timeoutSeconds * 1000);
+					}
 					return true;
 				} catch (final IOException ioe) {
 					throw new Exception("Cannot connect to host '" + hostname + "' on port " + port + ": " + ioe.getClass().getSimpleName() + ": " + ioe.getMessage());
