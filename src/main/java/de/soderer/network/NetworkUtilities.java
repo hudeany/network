@@ -18,9 +18,12 @@ import java.net.UnknownHostException;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -210,6 +213,25 @@ public class NetworkUtilities {
 			}
 
 			return requestString.substring(0, requestString.indexOf("/"));
+		}
+	}
+
+	public static List<X509Certificate> getTlsServerCertificates(final String host, final int port) throws Exception {
+		try {
+			final List<X509Certificate> serverCertificates = new ArrayList<>();
+			final HttpsURLConnection httpsURLConnection = (HttpsURLConnection) new URL("https://" + host + ":" + port).openConnection();
+			httpsURLConnection.connect();
+			final Certificate[] certificates = httpsURLConnection.getServerCertificates();
+			for (final Certificate certificate : certificates) {
+				if (certificate instanceof X509Certificate) {
+					serverCertificates.add((X509Certificate) certificate);
+				} else {
+					throw new Exception("Unknown certificate type: " + certificate.getClass());
+				}
+			}
+			return serverCertificates;
+		} catch (final Exception e) {
+			throw e;
 		}
 	}
 
