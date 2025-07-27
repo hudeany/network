@@ -217,9 +217,18 @@ public class NetworkUtilities {
 	}
 
 	public static List<X509Certificate> getTlsServerCertificates(final String host, final int port) throws Exception {
+		return getTlsServerCertificates(host, port, null);
+	}
+
+	public static List<X509Certificate> getTlsServerCertificates(final String host, final int port, final Proxy proxy) throws Exception {
 		try {
 			final List<X509Certificate> serverCertificates = new ArrayList<>();
-			final HttpsURLConnection httpsURLConnection = (HttpsURLConnection) new URL("https://" + host + ":" + port).openConnection();
+			final HttpsURLConnection httpsURLConnection;
+			if (proxy == null) {
+				httpsURLConnection = (HttpsURLConnection) new URL("https://" + host + ":" + port).openConnection();
+			} else {
+				httpsURLConnection = (HttpsURLConnection) new URL("https://" + host + ":" + port).openConnection(proxy);
+			}
 			httpsURLConnection.connect();
 			final Certificate[] certificates = httpsURLConnection.getServerCertificates();
 			for (final Certificate certificate : certificates) {

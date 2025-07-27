@@ -9,6 +9,7 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.SocketTimeoutException;
 import java.net.URL;
@@ -697,5 +698,19 @@ public class HttpUtilities {
 			}
 		}
 		return null;
+	}
+
+	public static Proxy getProxyFromString(final String proxyString) {
+		if (proxyString == null || proxyString.trim().length() == 0 || "DIRECT".equalsIgnoreCase(proxyString)) {
+			return Proxy.NO_PROXY;
+		} else {
+			String proxyHost = proxyString;
+			String proxyPort = "8080";
+			if (proxyHost.contains(":")) {
+				proxyPort = proxyHost.substring(proxyHost.indexOf(":") + 1);
+				proxyHost = proxyHost.substring(0, proxyHost.indexOf(":"));
+			}
+			return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(proxyHost, Integer.parseInt(proxyPort)));
+		}
 	}
 }
