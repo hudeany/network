@@ -109,6 +109,49 @@ public class NetworkUtilities {
 		}
 	}
 
+	public static boolean testConnectionViaProxy(final String hostname, final int port, final int timeoutSeconds, final Proxy proxy) throws Exception {
+		if (proxy == null || proxy.equals(Proxy.NO_PROXY)) {
+			return testConnection(hostname, port, timeoutSeconds);
+		} else {
+			final String proxyHost = ((InetSocketAddress) proxy.address()).getHostName();
+			final int proxyPort = ((InetSocketAddress) proxy.address()).getPort();
+			try (Socket socket = new Socket(proxyHost, proxyPort)) {
+				final String proxyConnect = "CONNECT " + hostname + ":" + port;
+
+				// Add proxy credentials for later use
+				//	try {
+				//		String proxyUserPass = String.format("%s:%s", System.getProperty("http.proxyUser"), System.getProperty("http.proxyPass"));
+				//		proxyConnect.concat(" HTTP/1.0\nProxy-Authorization:Basic " + Base64.encode(proxyUserPass.getBytes()));
+				//	} catch (Exception e) {
+				//	} finally {
+				//		proxyConnect.concat("\n\n");
+				//	}
+				proxyConnect.concat("\n\n");
+
+				socket.getOutputStream().write(proxyConnect.getBytes());
+
+				final byte[] tmpBuffer = new byte[512];
+				try (final InputStream socketInputStream = socket.getInputStream()) {
+					final int proxyResponseLength = socketInputStream.read(tmpBuffer, 0, tmpBuffer.length);
+					if (proxyResponseLength == 0) {
+						throw new SocketException("Invalid response from proxy");
+					}
+
+					final String proxyResponse = new String(tmpBuffer, 0, proxyResponseLength, "UTF-8");
+					if (proxyResponse.contains("200")) {
+						if (socketInputStream.available() > 0) {
+							// Flush any leftover message in buffer
+							socketInputStream.skip(socketInputStream.available());
+						}
+						return true;
+					} else {
+						return false;
+					}
+				}
+			}
+		}
+	}
+
 	public static boolean ping(final String ipOrHostname, final Proxy proxy) {
 		try {
 			if (ipOrHostname.toLowerCase().trim().startsWith("http://")) {

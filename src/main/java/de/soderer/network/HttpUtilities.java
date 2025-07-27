@@ -84,6 +84,10 @@ public class HttpUtilities {
 	}
 
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final TrustManager trustManager) throws Exception {
+		return executeHttpRequest(httpRequest, proxy, null, null, trustManager);
+	}
+
+	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final String proxyUsername, final String proxyPassword, final TrustManager trustManager) throws Exception {
 		try {
 			String requestedUrl = httpRequest.getUrlWithProtocol();
 
@@ -120,6 +124,10 @@ public class HttpUtilities {
 			final HttpURLConnection urlConnection = (HttpURLConnection) new URL(requestedUrl).openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
 			if (httpRequest.getRequestMethod() != null) {
 				urlConnection.setRequestMethod(httpRequest.getRequestMethod().name());
+			}
+			if (proxy != null && !proxy.equals(Proxy.NO_PROXY) && proxyUsername != null && proxyPassword != null) {
+				final String proxyCredentials = proxyUsername + ":" + proxyPassword;
+				urlConnection.setRequestProperty("Proxy-Authorization", "Basic " + Base64.getEncoder().encodeToString(proxyCredentials.getBytes(StandardCharsets.UTF_8)));
 			}
 
 			if (requestedUrl.toLowerCase().startsWith(HttpRequest.SECURE_HTTP_PROTOCOL_SIGN) && trustManager != null) {
