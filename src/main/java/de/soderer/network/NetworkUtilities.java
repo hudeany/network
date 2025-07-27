@@ -109,7 +109,7 @@ public class NetworkUtilities {
 		}
 	}
 
-	public static boolean testConnectionViaProxy(final String hostname, final int port, final int timeoutSeconds, final Proxy proxy) throws Exception {
+	public static boolean testConnection(final String hostname, final int port, final int timeoutSeconds, final Proxy proxy) throws Exception {
 		if (proxy == null || proxy.equals(Proxy.NO_PROXY)) {
 			return testConnection(hostname, port, timeoutSeconds);
 		} else {
