@@ -453,4 +453,20 @@ public class NetworkUtilities {
 		outputStream.flush();
 		return bytesCopied;
 	}
+
+	public static boolean hostnamePatternMatches(final String hostname, final String hostnamePattern) {
+		final StringBuilder hostnamePatternEscaped = new StringBuilder();
+		for (final char c : hostnamePattern.toCharArray()) {
+			if (Character.isLetterOrDigit(c)) {
+				hostnamePatternEscaped.append(c);
+			} else if ('*' == c) {
+				hostnamePatternEscaped.append(".*");
+			} else {
+				hostnamePatternEscaped.append("\\");
+				hostnamePatternEscaped.append(c);
+			}
+		}
+
+		return Pattern.matches(hostnamePatternEscaped.toString().toLowerCase(), hostname.toLowerCase());
+	}
 }
