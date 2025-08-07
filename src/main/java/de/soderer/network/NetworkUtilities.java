@@ -184,8 +184,7 @@ public class NetworkUtilities {
 			} else {
 				return InetAddress.getByName(getHostnameFromRequestString(ipOrHostname)).isReachable(5000);
 			}
-		} catch (final Exception e) {
-			e.printStackTrace();
+		} catch (@SuppressWarnings("unused") final Exception e) {
 			return false;
 		}
 	}

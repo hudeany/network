@@ -9,7 +9,7 @@
 	<property name="buildPath" value="build" />
 	<echo message="buildPath: ${buildPath}" />
 
-	<target name="build_jar" depends="cleanup_before, create_jar, cleanup_after" />
+	<target name="build_jar" depends="cleanup_before, create_jar, cleanup_after, test" />
 
 	<target name="cleanup_before">
 		<mkdir dir="${buildPath}" />
@@ -21,9 +21,23 @@
 		</delete>
 
 		<mkdir dir="${buildPath}/bin" />
+		<mkdir dir="${buildPath}/testbin" />
 	</target>
 
-	<target name="create_jar" depends="cleanup_before">
+	<target name="download_dependencies">
+		<mkdir dir="lib_test/" />
+		<delete includeEmptyDirs="true">
+			<fileset dir="lib_test/">
+				<include name="*" />
+			</fileset>
+		</delete>
+
+		<get src="https://repo1.maven.org/maven2/org/hamcrest/hamcrest/2.2/hamcrest-2.2.jar" dest="lib_test/" />
+		<get src="https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/2.2/hamcrest-core-2.2.jar" dest="lib_test/" />
+		<get src="https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar" dest="lib_test/" />
+	</target>
+
+	<target name="create_jar" depends="cleanup_before, download_dependencies">
 		<javac debug="true" nowarn="true" deprecation="false" destdir="${buildPath}/bin" fork="yes" source="1.8" target="1.8" srcdir="src/main/java" includeantruntime="false" encoding="UTF-8">
 			<compilerarg value="-Xlint:unchecked" />
 			<compilerarg value="-parameters" />
@@ -54,7 +68,48 @@
 		<checksum file="${buildPath}/network-${version}_sources.jar" algorithm="SHA-1" fileext=".sha1" forceOverwrite="yes" />
 	</target>
 
-	<target name="cleanup_after" depends="create_jar">
+	<target name="test" depends="create_jar">
+		<path id="test.build.classpath">
+			<fileset dir="lib_test">
+				<include name="*.jar" />
+			</fileset>
+			<fileset dir="${buildPath}">
+				<include name="*.jar" />
+			</fileset>
+		</path>
+
+		<javac debug="true" nowarn="true" deprecation="false" destdir="${buildPath}/testbin" fork="yes" source="1.8" target="1.8" srcdir="src/test/java" includeantruntime="false" encoding="UTF-8">
+			<classpath refid="test.build.classpath" />
+		</javac>
+
+		<!-- <copy todir="${buildPath}/testbin"> -->
+		<!-- 	<fileset dir="src/test/resources" /> -->
+		<!-- </copy> -->
+
+		<path id="test.classpath">
+			<fileset dir="lib_test">
+				<include name="*.jar" />
+			</fileset>
+			<fileset dir="${buildPath}">
+				<include name="*.jar" />
+			</fileset>
+			<dirset dir="${buildPath}">
+				<include name="testbin" />
+			</dirset>
+		</path>
+
+		<junit printsummary="yes" haltonfailure="yes" showOutput="yes">
+			<classpath refid="test.classpath" />
+			<batchtest todir="build">
+				<formatter type="plain" usefile="true"/>
+				<fileset dir="src/test/java">
+					<include name="**/*Test*.java" />
+				</fileset>
+			</batchtest>
+		</junit>
+	</target>
+
+	<target name="cleanup_after" depends="create_jar, test">
 		<delete dir="${buildPath}/bin" />
 		<delete dir="${buildPath}/testbin" />
 
