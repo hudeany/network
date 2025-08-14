@@ -75,7 +75,7 @@ public class TrustManagerUtilities {
 		return createTrustManagerForKeyStore(readKeyStore(keystoreFile, null));
 	}
 
-	public static TrustManager createTrusManagerForKeyStore(final File keystoreFile, final char[] keystorePassword) throws Exception {
+	public static TrustManager createTrustManagerForKeyStore(final File keystoreFile, final char[] keystorePassword) throws Exception {
 		return createTrustManagerForKeyStore(readKeyStore(keystoreFile, keystorePassword));
 	}
 
