@@ -46,7 +46,7 @@ import de.soderer.network.HttpRequest.UploadFileAttachment;
 
 public class HttpUtilities {
 	private static boolean debugLog = false;
-	private static String TLS_VERSION = "TLSv1.3";
+	private static String TLS_VERSION = "TLS"; // Also possible definitions "TLSv1.2", "TLSv1.3"
 
 	private static HostnameVerifier TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER = (hostname, session) -> true;
 
