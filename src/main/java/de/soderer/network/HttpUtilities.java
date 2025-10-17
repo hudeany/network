@@ -46,6 +46,7 @@ import de.soderer.network.HttpRequest.UploadFileAttachment;
 
 public class HttpUtilities {
 	private static boolean debugLog = false;
+	private static String TLV_VERSION = "TLSv1.3";
 
 	private static HostnameVerifier TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER = (hostname, session) -> true;
 
@@ -132,7 +133,7 @@ public class HttpUtilities {
 
 			if (requestedUrl.toLowerCase().startsWith(HttpRequest.SECURE_HTTP_PROTOCOL_SIGN) && trustManager != null) {
 				// Use special trustmanager
-				final SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+				final SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
 				sslContext.init(null, new TrustManager[] { trustManager }, new SecureRandom());
 				final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
 				((HttpsURLConnection) urlConnection).setSSLSocketFactory(sslSocketFactory);
@@ -378,7 +379,7 @@ public class HttpUtilities {
 		try {
 			if (pingUrl.startsWith("https")) {
 				// Deactivate SSL-Certificates check
-				final SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+				final SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
 				final TrustManager[] tms = new TrustManager[] {
 						new X509TrustManager() {
 							@Override
@@ -684,7 +685,7 @@ public class HttpUtilities {
 
 	public static X509Certificate getServerTlsCertificate(final String hostnameOrIp, final int port, final Proxy proxy) throws Exception {
 		final HttpsURLConnection urlConnection = (HttpsURLConnection) new URL("https://" + hostnameOrIp + ":" + port).openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
-		final SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+		final SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
 		sslContext.init(null, new TrustManager[] { TrustManagerUtilities.createTrustAllTrustManager() }, new java.security.SecureRandom());
 		final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
 		urlConnection.setSSLSocketFactory(sslSocketFactory);
