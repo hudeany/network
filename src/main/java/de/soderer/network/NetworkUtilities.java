@@ -16,6 +16,7 @@ import java.net.URI;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.security.KeyStore;
+import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -27,8 +28,11 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 
 public class NetworkUtilities {
@@ -259,18 +263,29 @@ public class NetworkUtilities {
 	}
 
 	public static List<X509Certificate> getTlsServerCertificates(final String host, final int port) throws Exception {
-		return getTlsServerCertificates(host, port, null);
+		return getTlsServerCertificates(host, port, null, false);
 	}
 
-	public static List<X509Certificate> getTlsServerCertificates(final String host, final int port, final Proxy proxy) throws Exception {
+	public static List<X509Certificate> getTlsServerCertificates(final String host, final int port, final Proxy proxy, final boolean noCertCheck) throws Exception {
 		try {
-			final List<X509Certificate> serverCertificates = new ArrayList<>();
 			final HttpsURLConnection httpsURLConnection;
 			if (proxy == null) {
 				httpsURLConnection = (HttpsURLConnection) new URL("https://" + host + ":" + port).openConnection();
 			} else {
 				httpsURLConnection = (HttpsURLConnection) new URL("https://" + host + ":" + port).openConnection(proxy);
 			}
+
+			if (noCertCheck) {
+				final TrustManager trustManager = TrustManagerUtilities.createTrustAllTrustManager();
+				final SSLContext sslContext = SSLContext.getInstance("TLS");
+				sslContext.init(null, new TrustManager[] { trustManager }, new SecureRandom());
+				final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
+				httpsURLConnection.setSSLSocketFactory(sslSocketFactory);
+				final HostnameVerifier trustAllHostnamesHostnameverifier = (hostname, session) -> true;
+				httpsURLConnection.setHostnameVerifier(trustAllHostnamesHostnameverifier);
+			}
+
+			final List<X509Certificate> serverCertificates = new ArrayList<>();
 			httpsURLConnection.connect();
 			final Certificate[] certificates = httpsURLConnection.getServerCertificates();
 			for (final Certificate certificate : certificates) {
