@@ -46,7 +46,6 @@ import de.soderer.network.HttpRequest.UploadFileAttachment;
 
 public class HttpUtilities {
 	private static boolean debugLog = false;
-	private final boolean test = false;
 	private static String TLS_VERSION = "TLS"; // Also possible definitions "TLSv1.2", "TLSv1.3"
 
 	private static HostnameVerifier TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER = (hostname, session) -> true;
@@ -230,6 +229,7 @@ public class HttpUtilities {
 				}
 
 				// Send post parameter data
+				urlConnection.setRequestProperty("Content-Length", Integer.toString(httpRequestBody.length()));
 				urlConnection.setDoOutput(true);
 				try (OutputStreamWriter out = new OutputStreamWriter(urlConnection.getOutputStream(), httpRequest.getEncoding() == null ? StandardCharsets.UTF_8 : httpRequest.getEncoding())) {
 					out.write(httpRequestBody);
@@ -253,6 +253,12 @@ public class HttpUtilities {
 				}
 			} else if (headers.containsKey("Content-Type")) {
 				String contentType = headers.get("Content-Type");
+				if (contentType != null && contentType.toLowerCase().contains("charset=")) {
+					contentType = contentType.toLowerCase();
+					encoding = Charset.forName(contentType.substring(contentType.indexOf("charset=") + 8).trim());
+				}
+			} else if (headers.containsKey("Content-type")) {
+				String contentType = headers.get("Content-type");
 				if (contentType != null && contentType.toLowerCase().contains("charset=")) {
 					contentType = contentType.toLowerCase();
 					encoding = Charset.forName(contentType.substring(contentType.indexOf("charset=") + 8).trim());
