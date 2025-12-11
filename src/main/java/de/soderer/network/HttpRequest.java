@@ -1,7 +1,10 @@
 package de.soderer.network;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -344,5 +347,43 @@ public class HttpRequest {
 	@Override
 	public String toString() {
 		return requestMethod.name() + " " + url;
+	}
+
+	public static HttpRequest parseHttpRequestData(final InputStream inputStream, final int timeoutMillis) throws IOException {
+
+		//		GET /abc?b=10&c=11 HTTP/1.1
+		//		Host: localhost:8080
+		//		User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0
+		//		Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+		//		Accept-Language: de,en-US;q=0.7,en;q=0.3
+		//		Accept-Encoding: gzip, deflate, br, zstd
+		//		DNT: 1
+		//		Sec-GPC: 1
+		//		Connection: keep-alive
+		//		Upgrade-Insecure-Requests: 1
+		//		Sec-Fetch-Dest: document
+		//		Sec-Fetch-Mode: navigate
+		//		Sec-Fetch-Site: none
+		//		Sec-Fetch-User: ?1
+		//		Priority: u=0, i
+		//		Content-type: application/x-www-form-urlencoded
+		//		Content-Length: 25
+
+		try (final BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+			String requestData = "";
+			try {
+				int nextCharInt;
+				while ((nextCharInt = reader.read()) != -1) {
+					requestData += (char) nextCharInt;
+					if (requestData.endsWith("\r\n\r\n")) {
+						requestData = requestData.trim();
+						break;
+					}
+				}
+			} catch (final IOException ex) {
+				System.err.println(ex.getMessage());
+			}
+			return null;
+		}
 	}
 }

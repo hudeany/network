@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
@@ -88,6 +87,7 @@ public class HttpUtilities {
 		return executeHttpRequest(httpRequest, proxy, null, null, trustManager);
 	}
 
+	// TODO: Must set "Content-Length" header when sending request body
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final String proxyUsername, final String proxyPassword, final TrustManager trustManager) throws Exception {
 		try {
 			String requestedUrl = httpRequest.getUrlWithProtocol();
@@ -176,64 +176,73 @@ public class HttpUtilities {
 
 			final String boundary = HttpUtilities.generateBoundary();
 
-			String httpRequestBody = null;
 			if (httpRequest.getRequestBodyContentStream() != null) {
 				urlConnection.setDoOutput(true);
-				final OutputStream outputStream = urlConnection.getOutputStream();
-				NetworkUtilities.copy(httpRequest.getRequestBodyContentStream(), outputStream);
-				outputStream.flush();
+				try (OutputStream outputStream = urlConnection.getOutputStream()) {
+					NetworkUtilities.copy(httpRequest.getRequestBodyContentStream(), outputStream);
+					outputStream.flush();
+				}
 			} else if (httpRequest.getRequestBody() != null) {
 				urlConnection.setDoOutput(true);
-				final OutputStream outputStream = urlConnection.getOutputStream();
-				httpRequestBody = httpRequest.getRequestBody();
-				outputStream.write(httpRequestBody.getBytes(StandardCharsets.UTF_8));
-				outputStream.flush();
+
+				final String httpRequestBody = httpRequest.getRequestBody();
+				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8 : httpRequest.getEncoding();
+				final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
+
+				urlConnection.setRequestProperty("Content-Length", Integer.toString(httpRequestBodyData.length));
+				try (OutputStream outputStream = urlConnection.getOutputStream()) {
+					outputStream.write(httpRequestBodyData);
+					outputStream.flush();
+				}
 			} else if (httpRequest.getUploadFileAttachments() != null && httpRequest.getUploadFileAttachments().size() > 0) {
 				urlConnection.setDoOutput(true);
 				urlConnection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-				final OutputStream outputStream = urlConnection.getOutputStream();
 
-				if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
-					for (final Entry<String, List<Object>> entry : httpRequest.getPostParameters().entrySet()) {
-						for (final Object value : entry.getValue()) {
-							outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-							outputStream.write(("Content-Disposition: form-data; name=\"" + urlEncode(entry.getKey(), StandardCharsets.UTF_8) + "\"\r\n").getBytes(StandardCharsets.UTF_8));
-							outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
-							if (value != null) {
-								outputStream.write(value.toString().getBytes(StandardCharsets.UTF_8));
+				try (OutputStream outputStream = urlConnection.getOutputStream()) {
+					if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
+						for (final Entry<String, List<Object>> entry : httpRequest.getPostParameters().entrySet()) {
+							for (final Object value : entry.getValue()) {
+								outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+								outputStream.write(("Content-Disposition: form-data; name=\"" + urlEncode(entry.getKey(), StandardCharsets.UTF_8) + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+								outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+								if (value != null) {
+									outputStream.write(value.toString().getBytes(StandardCharsets.UTF_8));
+								}
+								outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
 							}
-							outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
 						}
 					}
+
+					for (final UploadFileAttachment uploadFileAttachment : httpRequest.getUploadFileAttachments()) {
+						outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+						outputStream.write(("Content-Disposition: form-data; name=\"" + uploadFileAttachment.getHtmlInputName() + "\"; filename=\"" + uploadFileAttachment.getFileName() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+						outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+
+						outputStream.write(uploadFileAttachment.getData());
+
+						outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+					}
+
+					outputStream.write(("--" + boundary + "--" + "\r\n").getBytes(StandardCharsets.UTF_8));
+					outputStream.flush();
 				}
-
-				for (final UploadFileAttachment uploadFileAttachment : httpRequest.getUploadFileAttachments()) {
-					outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-					outputStream.write(("Content-Disposition: form-data; name=\"" + uploadFileAttachment.getHtmlInputName() + "\"; filename=\"" + uploadFileAttachment.getFileName() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
-					outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
-
-					outputStream.write(uploadFileAttachment.getData());
-
-					outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
-				}
-
-				outputStream.write(("--" + boundary + "--" + "\r\n").getBytes(StandardCharsets.UTF_8));
-				outputStream.flush();
 			} else if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
+				urlConnection.setDoOutput(true);
 				urlConnection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-				httpRequestBody = convertToParameterString(httpRequest.getPostParameters(), null);
+				final String httpRequestBody = convertToParameterString(httpRequest.getPostParameters(), null);
 
 				if (debugLog) {
 					System.out.println("Request Body: ");
 					System.out.println(httpRequestBody);
 				}
 
-				// Send post parameter data
-				urlConnection.setRequestProperty("Content-Length", Integer.toString(httpRequestBody.length()));
-				urlConnection.setDoOutput(true);
-				try (OutputStreamWriter out = new OutputStreamWriter(urlConnection.getOutputStream(), httpRequest.getEncoding() == null ? StandardCharsets.UTF_8 : httpRequest.getEncoding())) {
-					out.write(httpRequestBody);
-					out.flush();
+				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8 : httpRequest.getEncoding();
+				final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
+
+				urlConnection.setRequestProperty("Content-Length", Integer.toString(httpRequestBodyData.length));
+				try (OutputStream outputStream = urlConnection.getOutputStream()) {
+					outputStream.write(httpRequestBodyData);
+					outputStream.flush();
 				}
 			}
 
