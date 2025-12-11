@@ -12,7 +12,7 @@ import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.SocketTimeoutException;
-import java.net.URL;
+import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
@@ -122,7 +122,7 @@ public class HttpUtilities {
 				System.out.println("Requested URL: " + requestedUrl);
 			}
 
-			final HttpURLConnection urlConnection = (HttpURLConnection) new URL(requestedUrl).openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+			final HttpURLConnection urlConnection = (HttpURLConnection) URI.create(requestedUrl).toURL().openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
 			if (httpRequest.getRequestMethod() != null) {
 				urlConnection.setRequestMethod(httpRequest.getRequestMethod().name());
 			}
@@ -407,7 +407,7 @@ public class HttpUtilities {
 				};
 				sslContext.init(null, tms, null);
 				final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
-				final HttpsURLConnection urlConnection = (HttpsURLConnection) new URL(pingUrl).openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+				final HttpsURLConnection urlConnection = (HttpsURLConnection) URI.create(pingUrl).toURL().openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
 				urlConnection.setSSLSocketFactory(sslSocketFactory);
 				urlConnection.setRequestMethod("POST");
 				urlConnection.setConnectTimeout(5000);
@@ -416,7 +416,7 @@ public class HttpUtilities {
 				urlConnection.setDoOutput(false);
 				downloadStream = urlConnection.getInputStream();
 			} else {
-				final HttpURLConnection urlConnection = (HttpURLConnection) new URL(pingUrl).openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+				final HttpURLConnection urlConnection = (HttpURLConnection) URI.create(pingUrl).toURL().openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
 				urlConnection.setRequestMethod("POST");
 				urlConnection.setConnectTimeout(5000);
 				urlConnection.setReadTimeout(100);
@@ -691,7 +691,7 @@ public class HttpUtilities {
 	}
 
 	public static X509Certificate getServerTlsCertificate(final String hostnameOrIp, final int port, final Proxy proxy) throws Exception {
-		final HttpsURLConnection urlConnection = (HttpsURLConnection) new URL("https://" + hostnameOrIp + ":" + port).openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+		final HttpsURLConnection urlConnection = (HttpsURLConnection) URI.create("https://" + hostnameOrIp + ":" + port).toURL().openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
 		final SSLContext sslContext = SSLContext.getInstance(TLS_VERSION);
 		sslContext.init(null, new TrustManager[] { TrustManagerUtilities.createTrustAllTrustManager() }, new java.security.SecureRandom());
 		final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();

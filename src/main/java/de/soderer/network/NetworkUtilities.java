@@ -159,7 +159,7 @@ public class NetworkUtilities {
 	public static boolean ping(final String ipOrHostname, final Proxy proxy) {
 		try {
 			if (ipOrHostname.toLowerCase().trim().startsWith("http://")) {
-				final URL url = new URL("http://" + getHostnameFromRequestString(ipOrHostname));
+				final URL url = URI.create("http://" + getHostnameFromRequestString(ipOrHostname)).toURL();
 				HttpURLConnection httpURLConnection;
 				if (proxy == null) {
 					httpURLConnection = (HttpURLConnection) url.openConnection();
@@ -172,7 +172,7 @@ public class NetworkUtilities {
 				httpURLConnection.connect();
 				return true;
 			} else if (ipOrHostname.toLowerCase().trim().startsWith("https://")) {
-				final URL url = new URL("https://" + getHostnameFromRequestString(ipOrHostname));
+				final URL url = URI.create("https://" + getHostnameFromRequestString(ipOrHostname)).toURL();
 				HttpURLConnection httpURLConnection;
 				if (proxy == null) {
 					httpURLConnection = (HttpURLConnection) url.openConnection();
@@ -270,9 +270,9 @@ public class NetworkUtilities {
 		try {
 			final HttpsURLConnection httpsURLConnection;
 			if (proxy == null) {
-				httpsURLConnection = (HttpsURLConnection) new URL("https://" + host + ":" + port).openConnection();
+				httpsURLConnection = (HttpsURLConnection) URI.create("https://" + host + ":" + port).toURL().openConnection();
 			} else {
-				httpsURLConnection = (HttpsURLConnection) new URL("https://" + host + ":" + port).openConnection(proxy);
+				httpsURLConnection = (HttpsURLConnection) URI.create("https://" + host + ":" + port).toURL().openConnection(proxy);
 			}
 
 			if (noCertCheck) {
@@ -413,7 +413,7 @@ public class NetworkUtilities {
 		final SSLContext context = SSLContext.getInstance("TLS");
 		context.init(null, tmf.getTrustManagers(), null);
 
-		final URL url = new URL(urlString);
+		final URL url = URI.create(urlString).toURL();
 
 		final HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
 		connection.setSSLSocketFactory(context.getSocketFactory());
