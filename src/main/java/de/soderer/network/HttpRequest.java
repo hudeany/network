@@ -32,7 +32,16 @@ public class HttpRequest {
 		CONNECT,
 		OPTIONS,
 		TRACE,
-		PATCH
+		PATCH;
+
+		public static HttpMethod getHttpMethodByName(final String httpMethodName) throws Exception {
+			for (final HttpMethod httpMethod : HttpMethod.values()) {
+				if (httpMethod.name().equalsIgnoreCase(httpMethodName)) {
+					return httpMethod;
+				}
+			}
+			throw new Exception("Unknown HttpMethod name: '" + httpMethodName + "'");
+		}
 	}
 
 	private final HttpMethod requestMethod;
@@ -349,6 +358,7 @@ public class HttpRequest {
 		return requestMethod.name() + " " + url;
 	}
 
+	// TODO
 	public static HttpRequest parseHttpRequestData(final InputStream inputStream, final int timeoutMillis) throws IOException {
 
 		//		GET /abc?b=10&c=11 HTTP/1.1
