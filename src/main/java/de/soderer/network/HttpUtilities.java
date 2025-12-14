@@ -42,6 +42,7 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import de.soderer.network.HttpRequest.UploadFileAttachment;
+import de.soderer.network.utilities.CaseInsensitiveLinkedMap;
 
 public class HttpUtilities {
 	private static boolean debugLog = false;
@@ -87,7 +88,6 @@ public class HttpUtilities {
 		return executeHttpRequest(httpRequest, proxy, null, null, trustManager);
 	}
 
-	// TODO: Must set "Content-Length" header when sending request body
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final String proxyUsername, final String proxyPassword, final TrustManager trustManager) throws Exception {
 		try {
 			String requestedUrl = httpRequest.getUrlWithProtocol();
@@ -189,14 +189,14 @@ public class HttpUtilities {
 				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8 : httpRequest.getEncoding();
 				final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
 
-				urlConnection.setRequestProperty("Content-Length", Integer.toString(httpRequestBodyData.length));
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH, Integer.toString(httpRequestBodyData.length));
 				try (OutputStream outputStream = urlConnection.getOutputStream()) {
 					outputStream.write(httpRequestBodyData);
 					outputStream.flush();
 				}
 			} else if (httpRequest.getUploadFileAttachments() != null && httpRequest.getUploadFileAttachments().size() > 0) {
 				urlConnection.setDoOutput(true);
-				urlConnection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, HttpContentType.MultipartForm.getStringRepresentation() + "; boundary=" + boundary);
 
 				try (OutputStream outputStream = urlConnection.getOutputStream()) {
 					if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
@@ -228,7 +228,7 @@ public class HttpUtilities {
 				}
 			} else if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
 				urlConnection.setDoOutput(true);
-				urlConnection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, HttpContentType.HtmlForm.getStringRepresentation());
 				final String httpRequestBody = convertToParameterString(httpRequest.getPostParameters(), null);
 
 				if (debugLog) {
@@ -239,7 +239,7 @@ public class HttpUtilities {
 				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8 : httpRequest.getEncoding();
 				final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
 
-				urlConnection.setRequestProperty("Content-Length", Integer.toString(httpRequestBodyData.length));
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH, Integer.toString(httpRequestBodyData.length));
 				try (OutputStream outputStream = urlConnection.getOutputStream()) {
 					outputStream.write(httpRequestBodyData);
 					outputStream.flush();
@@ -248,26 +248,14 @@ public class HttpUtilities {
 
 			urlConnection.connect();
 
-			final Map<String, String> headers = new LinkedHashMap<>();
+			final Map<String, String> headers = new CaseInsensitiveLinkedMap<>();
 			for (final String headerName : urlConnection.getHeaderFields().keySet()) {
 				headers.put(headerName, urlConnection.getHeaderField(headerName));
 			}
 
 			Charset encoding = StandardCharsets.UTF_8;
-			if (headers.containsKey("content-type")) {
-				String contentType = headers.get("content-type");
-				if (contentType != null && contentType.toLowerCase().contains("charset=")) {
-					contentType = contentType.toLowerCase();
-					encoding = Charset.forName(contentType.substring(contentType.indexOf("charset=") + 8).trim());
-				}
-			} else if (headers.containsKey("Content-Type")) {
-				String contentType = headers.get("Content-Type");
-				if (contentType != null && contentType.toLowerCase().contains("charset=")) {
-					contentType = contentType.toLowerCase();
-					encoding = Charset.forName(contentType.substring(contentType.indexOf("charset=") + 8).trim());
-				}
-			} else if (headers.containsKey("Content-type")) {
-				String contentType = headers.get("Content-type");
+			if (headers.containsKey(HttpConstants.HTTPHEADERNAME_CONTENTTYPE)) {
+				String contentType = headers.get(HttpConstants.HTTPHEADERNAME_CONTENTTYPE);
 				if (contentType != null && contentType.toLowerCase().contains("charset=")) {
 					contentType = contentType.toLowerCase();
 					encoding = Charset.forName(contentType.substring(contentType.indexOf("charset=") + 8).trim());
@@ -450,11 +438,11 @@ public class HttpUtilities {
 		final Map<String, List<String>> returnMap = new HashMap<>();
 		final List<String> valueList = new ArrayList<>();
 		if (encoding == null) {
-			valueList.add("application/x-www-form-urlencoded");
+			valueList.add(HttpContentType.HtmlForm.getStringRepresentation());
 		} else {
-			valueList.add("application/x-www-form-urlencoded; charset=" + encoding.name().toLowerCase());
+			valueList.add(HttpContentType.HtmlForm.getStringRepresentation() + "; charset=" + encoding.name().toLowerCase());
 		}
-		returnMap.put("content-type", valueList);
+		returnMap.put(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, valueList);
 		return returnMap;
 	}
 

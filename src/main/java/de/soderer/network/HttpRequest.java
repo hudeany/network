@@ -23,27 +23,6 @@ public class HttpRequest {
 	public static final String HEADER_NAME_DOWNLOAD_COOKIE = "Set-Cookie";
 	public static final String HEADER_NAME_UPLOAD_COOKIE = "Cookie";
 
-	public enum HttpMethod {
-		GET,
-		HEAD,
-		POST,
-		PUT,
-		DELETE,
-		CONNECT,
-		OPTIONS,
-		TRACE,
-		PATCH;
-
-		public static HttpMethod getHttpMethodByName(final String httpMethodName) throws Exception {
-			for (final HttpMethod httpMethod : HttpMethod.values()) {
-				if (httpMethod.name().equalsIgnoreCase(httpMethodName)) {
-					return httpMethod;
-				}
-			}
-			throw new Exception("Unknown HttpMethod name: '" + httpMethodName + "'");
-		}
-	}
-
 	private final HttpMethod requestMethod;
 	private final String url;
 	private Charset encoding = StandardCharsets.UTF_8;
