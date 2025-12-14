@@ -1,13 +1,31 @@
 package de.soderer.network;
 
 public enum HttpContentType {
+	/** application/x-www-form-urlencoded */
 	HtmlForm("application/x-www-form-urlencoded"),
+
+	/** multipart/form-data */
 	MultipartForm("multipart/form-data"),
+
+	/** application/json */
 	Json("application/json"),
+
+	/** application/xml */
+	Xml("application/xml"),
+
+	/** application/yaml */
 	Yaml("application/yaml"),
+
+	/** application/zip */
 	Zip("application/zip"),
+
+	/** application/octet-stream */
 	Binary("application/octet-stream"),
+
+	/** text/html */
 	Html("text/html"),
+
+	/** text/plain */
 	Text("text/plain");
 
 	private final String stringRepresentation;
