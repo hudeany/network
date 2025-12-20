@@ -26,7 +26,22 @@ public enum HttpContentType {
 	Html("text/html"),
 
 	/** text/plain */
-	Text("text/plain");
+	Text("text/plain"),
+
+	/**
+	 * text/json<br />
+	 * Used to tell browsers to display data rather then download it to a file*/
+	TextJson("text/json"),
+
+	/**
+	 * text/yaml<br />
+	 * Used to tell browsers to display data rather then download it to a file*/
+	TextYaml("text/yaml"),
+
+	/**
+	 * text/xml<br />
+	 * Used to tell browsers to display data rather then download it to a file*/
+	TextXml("text/xml");
 
 	private final String stringRepresentation;
 
