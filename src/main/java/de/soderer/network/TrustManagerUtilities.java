@@ -34,7 +34,7 @@ public class TrustManagerUtilities {
 		return trustManagerFactory.getTrustManagers();
 	}
 
-	public static X509TrustManager createTrustAllTrustManager() throws Exception {
+	public static X509TrustManager createTrustAllTrustManager() {
 		return new X509TrustManager() {
 			@Override
 			public java.security.cert.X509Certificate[] getAcceptedIssuers() {
