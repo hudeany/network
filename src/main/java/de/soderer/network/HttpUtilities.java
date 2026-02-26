@@ -128,10 +128,10 @@ public class HttpUtilities {
 			}
 			if (proxy != null && !proxy.equals(Proxy.NO_PROXY) && proxyUsername != null && proxyPassword != null) {
 				final String proxyCredentials = proxyUsername + ":" + proxyPassword;
-				urlConnection.setRequestProperty("Proxy-Authorization", "Basic " + Base64.getEncoder().encodeToString(proxyCredentials.getBytes(StandardCharsets.UTF_8)));
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_PROXY_AUTHORIZATION, HttpConstants.AUTHORIZATIONHEADER_START_BASIC + " " + Base64.getEncoder().encodeToString(proxyCredentials.getBytes(StandardCharsets.UTF_8)));
 			}
 
-			if (requestedUrl.toLowerCase().startsWith(HttpRequest.SECURE_HTTP_PROTOCOL_SIGN) && trustManager != null) {
+			if (requestedUrl.toLowerCase().startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN) && trustManager != null) {
 				// Use special trustmanager
 				final SSLContext sslContext = SSLContext.getInstance(TLS_VERSION);
 				sslContext.init(null, new TrustManager[] { trustManager }, new SecureRandom());
@@ -171,7 +171,7 @@ public class HttpUtilities {
 					cookieValue.append(encodeForCookie(cookieEntry.getKey()) + "=" + encodeForCookie(cookieEntry.getValue()));
 				}
 
-				urlConnection.setRequestProperty(HttpRequest.HEADER_NAME_UPLOAD_COOKIE, cookieValue.toString());
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_COOKIE, cookieValue.toString());
 			}
 
 			final String boundary = HttpUtilities.generateBoundary();
@@ -277,8 +277,8 @@ public class HttpUtilities {
 			}
 
 			Map<String, String> cookiesMap = null;
-			if (headers.containsKey(HttpRequest.HEADER_NAME_DOWNLOAD_COOKIE)) {
-				final String cookiesData = headers.get(HttpRequest.HEADER_NAME_DOWNLOAD_COOKIE);
+			if (headers.containsKey(HttpConstants.HTTPHEADERNAME_DOWNLOAD_COOKIE)) {
+				final String cookiesData = headers.get(HttpConstants.HTTPHEADERNAME_DOWNLOAD_COOKIE);
 				if (cookiesData != null) {
 					cookiesMap = new LinkedHashMap<>();
 					for (final String cookie : cookiesData.split(";")) {

@@ -15,14 +15,6 @@ import java.util.List;
 import java.util.Map;
 
 public class HttpRequest {
-	public static final String SECURE_HTTP_PROTOCOL_SIGN = "https://";
-	public static final String HTTP_PROTOCOL_SIGN = "http://";
-
-	public static final String HEADER_NAME_BASIC_AUTHENTICATION = "Authorization";
-	public static final String HEADER_NAME_USER_AGENT = "User-Agent";
-	public static final String HEADER_NAME_DOWNLOAD_COOKIE = "Set-Cookie";
-	public static final String HEADER_NAME_UPLOAD_COOKIE = "Cookie";
-
 	private final HttpMethod requestMethod;
 	private final String url;
 	private Charset encoding = StandardCharsets.UTF_8;
@@ -118,10 +110,10 @@ public class HttpRequest {
 	public String getUrlWithProtocol() throws Exception {
 		if (NetworkUtilities.isBlank(url)) {
 			throw new Exception("Invalid empty URL for http request");
-		} else if (url.toLowerCase().startsWith(SECURE_HTTP_PROTOCOL_SIGN) || url.toLowerCase().startsWith(HTTP_PROTOCOL_SIGN)) {
+		} else if (url.toLowerCase().startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN) || url.toLowerCase().startsWith(HttpConstants.HTTP_PROTOCOL_SIGN)) {
 			return url;
 		} else {
-			return SECURE_HTTP_PROTOCOL_SIGN + url;
+			return HttpConstants.SECURE_HTTP_PROTOCOL_SIGN + url;
 		}
 	}
 
@@ -136,20 +128,20 @@ public class HttpRequest {
 	}
 
 	public HttpRequest addUserAgentHeader(final String userAgent) throws Exception {
-		if (headers.containsKey(HEADER_NAME_USER_AGENT)) {
+		if (headers.containsKey(HttpConstants.HTTPHEADERNAME_USER_AGENT)) {
 			throw new Exception("Request already contains a UserAgentHeader");
 		} else {
-			addHeader(HttpRequest.HEADER_NAME_USER_AGENT, userAgent);
+			addHeader(HttpConstants.HTTPHEADERNAME_USER_AGENT, userAgent);
 
 			return this;
 		}
 	}
 
 	public HttpRequest addBasicAuthenticationHeader(final String username, final String password) throws Exception {
-		if (headers.containsKey(HEADER_NAME_BASIC_AUTHENTICATION)) {
+		if (headers.containsKey(HttpConstants.HTTPHEADERNAME_AUTHORIZATION)) {
 			throw new Exception("Request already contains a BasicAuthenticationHeader");
 		} else {
-			addHeader(HttpRequest.HEADER_NAME_BASIC_AUTHENTICATION, HttpUtilities.createBasicAuthenticationHeaderValue(username, password));
+			addHeader(HttpConstants.HTTPHEADERNAME_AUTHORIZATION, HttpUtilities.createBasicAuthenticationHeaderValue(username, password));
 
 			return this;
 		}
