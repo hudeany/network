@@ -189,6 +189,20 @@ public class HttpUtilities {
 				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8 : httpRequest.getEncoding();
 				final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
 
+				boolean containsHeaderContentType = false;
+				if (httpRequest.getHeaders() != null && httpRequest.getHeaders().size() > 0) {
+					for (final String headerName : httpRequest.getHeaders().keySet()) {
+						if ("Content-Type".equalsIgnoreCase(headerName)) {
+							containsHeaderContentType = true;
+							break;
+						}
+					}
+				}
+
+				if (!containsHeaderContentType) {
+					urlConnection.setRequestProperty("Content-Type", "text/plain; charset=" + encoding);
+				}
+
 				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH, Integer.toString(httpRequestBodyData.length));
 				try (OutputStream outputStream = urlConnection.getOutputStream()) {
 					outputStream.write(httpRequestBodyData);

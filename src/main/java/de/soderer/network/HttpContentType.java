@@ -51,7 +51,8 @@ public enum HttpContentType {
 
 	public static HttpContentType getHttpContentTypeByName(final String httpContentTypeString) throws Exception {
 		for (final HttpContentType httpContentType : HttpContentType.values()) {
-			if (httpContentType.stringRepresentation.equalsIgnoreCase(httpContentTypeString)) {
+			if (httpContentType.stringRepresentation.equalsIgnoreCase(httpContentTypeString)
+					|| httpContentTypeString.toLowerCase().startsWith(httpContentType.stringRepresentation + " ")) {
 				return httpContentType;
 			}
 		}
