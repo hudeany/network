@@ -713,10 +713,16 @@ public class HttpUtilities {
 		return null;
 	}
 
-	public static Proxy getProxyFromString(final String proxyString) {
+	public static Proxy getProxyFromString(String proxyString) {
 		if (proxyString == null || proxyString.trim().length() == 0 || "DIRECT".equalsIgnoreCase(proxyString)) {
 			return Proxy.NO_PROXY;
 		} else {
+			if (proxyString.toLowerCase().startsWith("http://")) {
+				proxyString = proxyString.substring(7);
+			} else if (proxyString.toLowerCase().startsWith("https://")) {
+				proxyString = proxyString.substring(8);
+			}
+
 			String proxyHost = proxyString;
 			String proxyPort = "8080";
 			if (proxyHost.contains(":")) {
