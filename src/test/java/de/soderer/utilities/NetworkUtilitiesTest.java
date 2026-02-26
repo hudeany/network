@@ -11,10 +11,21 @@ import java.nio.charset.StandardCharsets;
 import org.junit.Assert;
 import org.junit.Test;
 
+import de.soderer.network.HttpContentType;
 import de.soderer.network.NetworkUtilities;
 
 @SuppressWarnings("static-method")
 public class NetworkUtilitiesTest {
+	@Test
+	public void testContentType() {
+		try {
+			Assert.assertTrue(HttpContentType.getHttpContentTypeByName("text/plain") == HttpContentType.Text);
+			Assert.assertTrue(HttpContentType.getHttpContentTypeByName("text/plain; charset=UTF-8") == HttpContentType.Text);
+		} catch (final Exception e) {
+			Assert.fail(e.getMessage());
+		}
+	}
+
 	@Test
 	public void testIpV4() {
 		try {
