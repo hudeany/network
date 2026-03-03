@@ -192,7 +192,7 @@ public class HttpUtilities {
 				boolean containsHeaderContentType = false;
 				if (httpRequest.getHeaders() != null && httpRequest.getHeaders().size() > 0) {
 					for (final String headerName : httpRequest.getHeaders().keySet()) {
-						if ("Content-Type".equalsIgnoreCase(headerName)) {
+						if (HttpConstants.HTTPHEADERNAME_CONTENTTYPE.equalsIgnoreCase(headerName)) {
 							containsHeaderContentType = true;
 							break;
 						}
@@ -200,7 +200,7 @@ public class HttpUtilities {
 				}
 
 				if (!containsHeaderContentType) {
-					urlConnection.setRequestProperty("Content-Type", "text/plain; charset=" + encoding);
+					urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, "text/plain; charset=" + encoding);
 				}
 
 				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH, Integer.toString(httpRequestBodyData.length));
@@ -217,7 +217,7 @@ public class HttpUtilities {
 						for (final Entry<String, List<Object>> entry : httpRequest.getPostParameters().entrySet()) {
 							for (final Object value : entry.getValue()) {
 								outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-								outputStream.write(("Content-Disposition: form-data; name=\"" + urlEncode(entry.getKey(), StandardCharsets.UTF_8) + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+								outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\"" + urlEncode(entry.getKey(), StandardCharsets.UTF_8) + "\"\r\n").getBytes(StandardCharsets.UTF_8));
 								outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
 								if (value != null) {
 									outputStream.write(value.toString().getBytes(StandardCharsets.UTF_8));
@@ -229,7 +229,7 @@ public class HttpUtilities {
 
 					for (final UploadFileAttachment uploadFileAttachment : httpRequest.getUploadFileAttachments()) {
 						outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-						outputStream.write(("Content-Disposition: form-data; name=\"" + uploadFileAttachment.getHtmlInputName() + "\"; filename=\"" + uploadFileAttachment.getFileName() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+						outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\"" + uploadFileAttachment.getHtmlInputName() + "\"; filename=\"" + uploadFileAttachment.getFileName() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
 						outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
 
 						outputStream.write(uploadFileAttachment.getData());
@@ -242,7 +242,21 @@ public class HttpUtilities {
 				}
 			} else if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
 				urlConnection.setDoOutput(true);
-				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, HttpContentType.HtmlForm.getStringRepresentation());
+
+				boolean containsHeaderContentType = false;
+				if (httpRequest.getHeaders() != null && httpRequest.getHeaders().size() > 0) {
+					for (final String headerName : httpRequest.getHeaders().keySet()) {
+						if (HttpConstants.HTTPHEADERNAME_CONTENTTYPE.equalsIgnoreCase(headerName)) {
+							containsHeaderContentType = true;
+							break;
+						}
+					}
+				}
+
+				if (!containsHeaderContentType) {
+					urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, HttpContentType.HtmlForm.getStringRepresentation());
+				}
+
 				final String httpRequestBody = convertToParameterString(httpRequest.getPostParameters(), null);
 
 				if (debugLog) {
