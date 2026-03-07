@@ -30,7 +30,7 @@ public class TrustManagerUtilities {
 		// Init the TrustmanagerFactory with systems default trust store.
 		tmf.init((KeyStore) null);
 
-		for (final var tm : tmf.getTrustManagers()) {
+		for (final TrustManager tm : tmf.getTrustManagers()) {
 			if (tm instanceof X509TrustManager) {
 				return (X509TrustManager) tm;
 			}

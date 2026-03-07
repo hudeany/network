@@ -9,6 +9,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 
+import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
@@ -47,7 +48,7 @@ public class PemFileTrustManager implements X509TrustManager {
 		tmf.init(keyStore);
 
 		X509TrustManager tm = null;
-		for (final var m : tmf.getTrustManagers()) {
+		for (final TrustManager m : tmf.getTrustManagers()) {
 			if (m instanceof X509TrustManager) {
 				tm = (X509TrustManager) m;
 				break;

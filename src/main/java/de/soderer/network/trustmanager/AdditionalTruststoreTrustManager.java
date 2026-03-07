@@ -6,6 +6,7 @@ import java.security.KeyStore;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 
+import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
@@ -49,7 +50,7 @@ public class AdditionalTruststoreTrustManager implements X509TrustManager {
 		final TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
 		tmf.init(keyStore);
 
-		for (final var tm : tmf.getTrustManagers()) {
+		for (final TrustManager tm : tmf.getTrustManagers()) {
 			if (tm instanceof X509TrustManager) {
 				return (X509TrustManager) tm;
 			}
