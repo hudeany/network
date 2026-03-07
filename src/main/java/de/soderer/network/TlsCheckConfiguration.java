@@ -26,11 +26,11 @@ public class TlsCheckConfiguration {
 	private final File trustoreOrPemFile;
 	private final char[] trustorePassword;
 
-	public TlsCheckConfiguration(final TlsCheckConfigurationType type) throws Exception {
+	public TlsCheckConfiguration(final TlsCheckConfigurationType type) {
 		this(type, null);
 	}
 
-	public TlsCheckConfiguration(final TlsCheckConfigurationType type, final File trustoreOrPemFile) throws Exception {
+	public TlsCheckConfiguration(final TlsCheckConfigurationType type, final File trustoreOrPemFile) {
 		this(type, trustoreOrPemFile, null);
 	}
 
