@@ -1,4 +1,4 @@
-package de.soderer.network;
+package de.soderer.network.trustmanager;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -12,19 +12,9 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
+import de.soderer.network.HttpUtilities;
+
 public class TrustManagerUtilities {
-	/**
-	 * Use systems default trusted keystore and define an additionlaly used trusted keystore
-	 *
-	 * Usage:
-	 *   SSLContext sslContext = SSLContext.getInstance("TLS");
-	 *   sslContext.init(null, new TrustManager[] { getDefaultTrustManagers() }, null);
-	 *   SSLContext.setDefault(sslContext);
-	 *
-	 * @param trustedKeyStore
-	 * @return
-	 * @throws Exception
-	 */
 	public static TrustManager[] getDefaultTrustManagers() throws Exception {
 		final TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
 
@@ -32,6 +22,21 @@ public class TrustManagerUtilities {
 		trustManagerFactory.init((KeyStore) null);
 
 		return trustManagerFactory.getTrustManagers();
+	}
+
+	public static X509TrustManager getDefaultTrustManager() throws Exception {
+		final TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+
+		// Init the TrustmanagerFactory with systems default trust store.
+		tmf.init((KeyStore) null);
+
+		for (final var tm : tmf.getTrustManagers()) {
+			if (tm instanceof X509TrustManager) {
+				return (X509TrustManager) tm;
+			}
+		}
+
+		throw new IllegalStateException("No system default X509TrustManager found");
 	}
 
 	public static X509TrustManager createTrustAllTrustManager() {

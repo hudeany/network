@@ -42,6 +42,7 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import de.soderer.network.HttpRequest.UploadFileAttachment;
+import de.soderer.network.trustmanager.TrustManagerUtilities;
 import de.soderer.network.utilities.CaseInsensitiveLinkedMap;
 
 public class HttpUtilities {
