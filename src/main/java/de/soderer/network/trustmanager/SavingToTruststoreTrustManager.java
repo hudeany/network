@@ -59,11 +59,21 @@ public class SavingToTruststoreTrustManager implements X509TrustManager {
 	@Override
 	public void checkServerTrusted(final X509Certificate[] chain, final String authType) {
 		try {
-			if (chain != null && chain.length > 0) {
-				serverCertificate = chain[0];
-				final String alias = serverCertificate.getSubjectX500Principal().getName();
-				if (keyStore.getCertificate(alias) == null) {
-					keyStore.setCertificateEntry(alias, serverCertificate);
+			if (chain != null) {
+				if (chain.length > 0) {
+					serverCertificate = chain[0];
+				}
+
+				boolean newCertificateAdded = false;
+				for (int i = 0; i < chain.length; i++) {
+					final String alias = chain[i].getSubjectX500Principal().getName();
+					if (keyStore.getCertificate(alias) == null) {
+						keyStore.setCertificateEntry(alias, chain[i]);
+						newCertificateAdded = true;
+					}
+				}
+
+				if (newCertificateAdded) {
 					try (FileOutputStream fos = new FileOutputStream(trustStoreFile)) {
 						keyStore.store(fos, trustStorePassword);
 					}
