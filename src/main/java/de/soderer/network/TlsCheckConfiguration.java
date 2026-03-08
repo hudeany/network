@@ -19,7 +19,16 @@ public class TlsCheckConfiguration {
 		RecordingToTrustStoreFile,
 		SingleCertificate,
 		RecordingSingleCertificate,
-		NoCheck
+		NoCheck;
+
+		public static TlsCheckConfigurationType getTlsCheckConfigurationByName(final String tlsCheckConfigurationTypeString) throws Exception {
+			for (final TlsCheckConfigurationType httpContentType : TlsCheckConfigurationType.values()) {
+				if (httpContentType.name().equalsIgnoreCase(tlsCheckConfigurationTypeString)) {
+					return httpContentType;
+				}
+			}
+			throw new Exception("Unknown TlsCheckConfigurationType: '" + tlsCheckConfigurationTypeString + "'");
+		}
 	}
 
 	private final TlsCheckConfigurationType type;
@@ -51,8 +60,8 @@ public class TlsCheckConfiguration {
 			throw new IllegalArgumentException("TlsCheckConfigurationType 'SystemTrustStore' does not support truststore file parameter");
 		} else if (type == TlsCheckConfigurationType.SingleCertificate && trustoreOrPemFile == null) {
 			throw new IllegalArgumentException("TlsCheckConfigurationType 'SingleCertificate' needs truststore file parameter not to be null");
-		} else if (type == TlsCheckConfigurationType.RecordingSingleCertificate && trustoreOrPemFile != null) {
-			throw new IllegalArgumentException("TlsCheckConfigurationType 'RecordingSingleCertificate' does not support truststore file parameter");
+		} else if (type == TlsCheckConfigurationType.RecordingSingleCertificate && trustoreOrPemFile == null) {
+			throw new IllegalArgumentException("TlsCheckConfigurationType 'RecordingSingleCertificate' needs truststore file parameter not to be null");
 		}
 	}
 
