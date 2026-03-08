@@ -14,6 +14,7 @@ import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.net.UnknownHostException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
@@ -37,6 +38,7 @@ import java.util.regex.Pattern;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
@@ -359,6 +361,10 @@ public class HttpUtilities {
 					return new HttpResponse(httpResponseCode, urlConnection.getResponseMessage(), null, null, headers, cookiesMap);
 				}
 			}
+		} catch (final UnknownHostException e) {
+			throw new Exception("Unknown host '" + e.getMessage() + "'", e);
+		} catch (final SSLHandshakeException e) {
+			throw new Exception("Cannot validate TLS server certificate for URL '" + httpRequest.getUrlWithProtocol() + "'", e);
 		} catch (final Exception e) {
 			throw e;
 		}
