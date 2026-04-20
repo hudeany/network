@@ -730,7 +730,12 @@ public class HttpUtilities {
 		urlConnection.setSSLSocketFactory(sslSocketFactory);
 		urlConnection.setHostnameVerifier(TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER);
 		urlConnection.connect();
-		final Certificate[] certificates = urlConnection.getServerCertificates();
+		Certificate[] certificates;
+		try {
+			certificates = urlConnection.getServerCertificates();
+		} finally {
+			urlConnection.disconnect();
+		}
 		for (final Certificate certificate : certificates) {
 			if (certificate instanceof X509Certificate) {
 				// Take the first certificate with alternative names
