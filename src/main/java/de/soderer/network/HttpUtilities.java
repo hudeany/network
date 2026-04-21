@@ -62,7 +62,7 @@ public class HttpUtilities {
 	 * @throws Exception
 	 */
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest) throws Exception {
-		return executeHttpRequest(httpRequest, null, (TrustManager) null);
+		return executeHttpRequest(httpRequest, null, (TrustManager) null, false);
 	}
 
 	/**
@@ -76,19 +76,19 @@ public class HttpUtilities {
 	 * @throws Exception
 	 */
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy) throws Exception {
-		return executeHttpRequest(httpRequest, proxy, (TrustManager) null);
+		return executeHttpRequest(httpRequest, proxy, (TrustManager) null, false);
 	}
 
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final KeyStore trustedKeyStore) throws Exception {
 		if (trustedKeyStore.size() <= 0) {
 			throw new Exception("No trusted certificate aliases found in defined trusted keystore");
 		} else {
-			return executeHttpRequest(httpRequest, proxy, TrustManagerUtilities.createTrustManagerForKeyStore(trustedKeyStore));
+			return executeHttpRequest(httpRequest, proxy, TrustManagerUtilities.createTrustManagerForKeyStore(trustedKeyStore), false);
 		}
 	}
 
-	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final TrustManager trustManager) throws Exception {
-		return executeHttpRequest(httpRequest, proxy, null, null, trustManager, false);
+	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final TrustManager trustManager, final boolean deactivateHostnameVerification) throws Exception {
+		return executeHttpRequest(httpRequest, proxy, null, null, trustManager, deactivateHostnameVerification);
 	}
 
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final String proxyUsername, final String proxyPassword, final TrustManager trustManager, final boolean deactivateHostnameVerification) throws Exception {
@@ -346,7 +346,7 @@ public class HttpUtilities {
 				final String redirectUrl = urlConnection.getHeaderField("Location");
 				if (NetworkUtilities.isNotBlank(redirectUrl)) {
 					final HttpRequest redirectedHttpRequest = new HttpRequest(httpRequest.getRequestMethod(), redirectUrl);
-					return executeHttpRequest(redirectedHttpRequest, proxy, trustManager);
+					return executeHttpRequest(redirectedHttpRequest, proxy, trustManager, deactivateHostnameVerification);
 				} else {
 					throw new Exception("Redirection url was empty");
 				}
