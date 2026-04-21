@@ -88,10 +88,10 @@ public class HttpUtilities {
 	}
 
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final TrustManager trustManager) throws Exception {
-		return executeHttpRequest(httpRequest, proxy, null, null, trustManager);
+		return executeHttpRequest(httpRequest, proxy, null, null, trustManager, false);
 	}
 
-	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final String proxyUsername, final String proxyPassword, final TrustManager trustManager) throws Exception {
+	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final String proxyUsername, final String proxyPassword, final TrustManager trustManager, final boolean deactivateHostnameVerification) throws Exception {
 		try {
 			String requestedUrl = httpRequest.getUrlWithProtocol();
 
@@ -134,13 +134,17 @@ public class HttpUtilities {
 				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_PROXY_AUTHORIZATION, HttpConstants.AUTHORIZATIONHEADER_START_BASIC + " " + Base64.getEncoder().encodeToString(proxyCredentials.getBytes(StandardCharsets.UTF_8)));
 			}
 
-			if (requestedUrl.toLowerCase().startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN) && trustManager != null) {
-				// Use special trustmanager
-				final SSLContext sslContext = SSLContext.getInstance(TLS_VERSION);
-				sslContext.init(null, new TrustManager[] { trustManager }, new SecureRandom());
-				final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
-				((HttpsURLConnection) urlConnection).setSSLSocketFactory(sslSocketFactory);
-				((HttpsURLConnection) urlConnection).setHostnameVerifier(TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER);
+			if (requestedUrl.toLowerCase().startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN)) {
+				if (trustManager != null) {
+					// Use special trustmanager
+					final SSLContext sslContext = SSLContext.getInstance(TLS_VERSION);
+					sslContext.init(null, new TrustManager[] { trustManager }, new SecureRandom());
+					final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
+					((HttpsURLConnection) urlConnection).setSSLSocketFactory(sslSocketFactory);
+				}
+				if (deactivateHostnameVerification) {
+					((HttpsURLConnection) urlConnection).setHostnameVerifier(TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER);
+				}
 			}
 
 			if (httpRequest.getConnectTimeoutMillis() >= 0) {
