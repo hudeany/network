@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -34,6 +35,11 @@ public class HttpRequest {
 	private final Map<String, String> cookieData = new LinkedHashMap<>();
 
 	private boolean followRedirects = false;
+
+	/**
+	 * Temporary accessible url connection for interrupting the connection on long timeouts
+	 */
+	private volatile HttpURLConnection httpURLConnection = null;
 
 	public class UploadFileAttachment {
 		private String htmlInputName;
@@ -324,6 +330,14 @@ public class HttpRequest {
 		return this;
 	}
 
+	public HttpURLConnection getHttpURLConnection() {
+		return httpURLConnection;
+	}
+
+	protected void setHttpURLConnection(final HttpURLConnection httpURLConnection) {
+		this.httpURLConnection = httpURLConnection;
+	}
+
 	@Override
 	public String toString() {
 		return requestMethod.name() + " " + url;
@@ -365,6 +379,16 @@ public class HttpRequest {
 				System.err.println(ex.getMessage());
 			}
 			return null;
+		}
+	}
+
+	public void cancel() {
+		if (httpURLConnection != null) {
+			try {
+				httpURLConnection.disconnect();
+			} catch (@SuppressWarnings("unused") final Exception e) {
+				// do nothing
+			}
 		}
 	}
 }

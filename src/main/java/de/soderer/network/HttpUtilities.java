@@ -281,6 +281,8 @@ public class HttpUtilities {
 				}
 			}
 
+			httpRequest.setHttpURLConnection(urlConnection);
+
 			urlConnection.connect();
 
 			final Map<String, String> headers = new CaseInsensitiveLinkedMap<>();
@@ -371,6 +373,8 @@ public class HttpUtilities {
 			throw new Exception("Cannot validate TLS server certificate for URL '" + httpRequest.getUrlWithProtocol() + "'", e);
 		} catch (final Exception e) {
 			throw e;
+		} finally {
+			httpRequest.setHttpURLConnection(null);
 		}
 	}
 
