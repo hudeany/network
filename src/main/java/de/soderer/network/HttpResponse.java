@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 public class HttpResponse {
+	private final String ipAddress;
 	private final int httpCode;
 	private final String httpCodeMessage;
 	private final String content;
@@ -11,13 +12,28 @@ public class HttpResponse {
 	private final Map<String, String> headers;
 	private final Map<String, String> cookieData;
 
-	public HttpResponse(final int httpCode, final String httpCodeMessage, final String content, final String contentType, final Map<String, String> headers, final Map<String, String> cookieData) {
+	public HttpResponse(final String ipAddress, final int httpCode, final String httpCodeMessage, final String content, final String contentType, final Map<String, String> headers, final Map<String, String> cookieData) {
+		this.ipAddress = ipAddress;
 		this.httpCode = httpCode;
 		this.httpCodeMessage = httpCodeMessage;
 		this.content = content;
 		this.contentType = contentType;
 		this.headers = headers;
 		this.cookieData = cookieData;
+	}
+
+	public HttpResponse(final int httpCode, final String httpCodeMessage, final String content, final String contentType, final Map<String, String> headers, final Map<String, String> cookieData) {
+		ipAddress = null;
+		this.httpCode = httpCode;
+		this.httpCodeMessage = httpCodeMessage;
+		this.content = content;
+		this.contentType = contentType;
+		this.headers = headers;
+		this.cookieData = cookieData;
+	}
+
+	public String getIpAddress() {
+		return ipAddress;
 	}
 
 	public int getHttpCode() {

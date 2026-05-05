@@ -8,6 +8,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.SocketTimeoutException;
@@ -317,11 +318,13 @@ public class HttpUtilities {
 			if (httpResponseCode < HttpURLConnection.HTTP_BAD_REQUEST) {
 				if (httpRequest.getDownloadStream() != null && 200 <= httpResponseCode && httpResponseCode <= 299) {
 					NetworkUtilities.copy(urlConnection.getInputStream(), httpRequest.getDownloadStream());
-					return new HttpResponse(httpResponseCode, urlConnection.getResponseMessage(), "File downloaded", urlConnection.getContentType(), headers, cookiesMap);
+					final String ipAddress = getIpAddress(urlConnection);
+					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), "File downloaded", urlConnection.getContentType(), headers, cookiesMap);
 				} else if (httpRequest.getDownloadFile() != null && 200 <= httpResponseCode && httpResponseCode <= 299) {
 					try (FileOutputStream downloadFileOutputStream = new FileOutputStream(httpRequest.getDownloadFile())) {
 						NetworkUtilities.copy(urlConnection.getInputStream(), downloadFileOutputStream);
-						return new HttpResponse(httpResponseCode, urlConnection.getResponseMessage(), "File downloaded", urlConnection.getContentType(), headers, cookiesMap);
+						final String ipAddress = getIpAddress(urlConnection);
+						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), "File downloaded", urlConnection.getContentType(), headers, cookiesMap);
 					} catch (final Exception e) {
 						if (httpRequest.getDownloadFile().exists()) {
 							httpRequest.getDownloadFile().delete();
@@ -338,9 +341,11 @@ public class HttpUtilities {
 							}
 							httpResponseContent.append(httpResponseContentLine);
 						}
-						return new HttpResponse(httpResponseCode, urlConnection.getResponseMessage(), httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap);
+						final String ipAddress = getIpAddress(urlConnection);
+						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap);
 					} catch (@SuppressWarnings("unused") final Exception e) {
-						return new HttpResponse(httpResponseCode, urlConnection.getResponseMessage(), null, null, headers, cookiesMap);
+						final String ipAddress = getIpAddress(urlConnection);
+						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null, null, headers, cookiesMap);
 					}
 				}
 			} else if ((httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP || httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM) && httpRequest.isFollowRedirects()) {
@@ -362,9 +367,11 @@ public class HttpUtilities {
 						}
 						httpResponseContent.append(httpResponseContentLine);
 					}
-					return new HttpResponse(httpResponseCode, urlConnection.getResponseMessage(), httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap);
+					final String ipAddress = getIpAddress(urlConnection);
+					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap);
 				} catch (@SuppressWarnings("unused") final Exception e) {
-					return new HttpResponse(httpResponseCode, urlConnection.getResponseMessage(), null, null, headers, cookiesMap);
+					final String ipAddress = getIpAddress(urlConnection);
+					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null, null, headers, cookiesMap);
 				}
 			}
 		} catch (final UnknownHostException e) {
@@ -778,6 +785,28 @@ public class HttpUtilities {
 				proxyHost = proxyHost.substring(0, proxyHost.indexOf(":"));
 			}
 			return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(proxyHost, Integer.parseInt(proxyPort)));
+		}
+	}
+
+	public static String getIpAddress(final HttpURLConnection connection) {
+		try {
+			String ip = connection.getHeaderField("X-Real-IP");
+
+			if (ip == null) {
+				ip = connection.getHeaderField("X-Forwarded-For");
+				if (ip != null) {
+					ip = ip.split(",")[0].trim();
+				}
+			}
+
+			if (ip == null) {
+				final String host = connection.getURL().getHost();
+				final InetAddress address = InetAddress.getByName(host);
+				ip = address.getHostAddress();
+			}
+			return ip;
+		} catch (@SuppressWarnings("unused") final Exception e) {
+			return null;
 		}
 	}
 }
