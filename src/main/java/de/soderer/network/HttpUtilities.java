@@ -127,6 +127,7 @@ public class HttpUtilities {
 			}
 
 			final HttpURLConnection urlConnection = (HttpURLConnection) URI.create(requestedUrl).toURL().openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+			urlConnection.setInstanceFollowRedirects(false);
 			if (httpRequest.getRequestMethod() != null) {
 				urlConnection.setRequestMethod(httpRequest.getRequestMethod().name());
 			}
