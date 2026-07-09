@@ -3,6 +3,7 @@ package de.soderer.network.trustmanager;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Proxy;
 import java.security.KeyStore;
@@ -56,6 +57,28 @@ public class TrustManagerUtilities {
 				// nothing to do
 			}
 		};
+	}
+
+	public static KeyStore readKeyStore(final InputStream keystoreInputStream) throws Exception {
+		return readKeyStore(keystoreInputStream, null);
+	}
+
+	public static KeyStore readKeyStore(final InputStream keystoreInputStream, final char[] keystorePassword) throws Exception {
+		KeyStore trustedKeyStore = KeyStore.getInstance(KeyStore.getDefaultType());
+		trustedKeyStore.load(keystoreInputStream, keystorePassword);
+		if (trustedKeyStore.size() == 0 && keystorePassword == null) {
+			trustedKeyStore = KeyStore.getInstance(KeyStore.getDefaultType());
+			trustedKeyStore.load(keystoreInputStream, "".toCharArray());
+		}
+		return trustedKeyStore;
+	}
+
+	public static TrustManager createTrustManagerForKeyStore(final InputStream keystoreInputStream) throws Exception {
+		return createTrustManagerForKeyStore(readKeyStore(keystoreInputStream, null));
+	}
+
+	public static TrustManager createTrustManagerForKeyStore(final InputStream keystoreInputStream, final char[] keystorePassword) throws Exception {
+		return createTrustManagerForKeyStore(readKeyStore(keystoreInputStream, keystorePassword));
 	}
 
 	public static KeyStore readKeyStore(final File keystoreFile) throws Exception {
