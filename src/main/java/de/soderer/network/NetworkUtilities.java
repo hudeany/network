@@ -15,6 +15,7 @@ import java.net.SocketException;
 import java.net.URI;
 import java.net.URL;
 import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.security.cert.Certificate;
@@ -84,7 +85,7 @@ public class NetworkUtilities {
 	private static final Pattern DOMAIN_NAME_PATTERN = Pattern.compile(DOMAIN_NAME_REGEX);
 
 	/**
-	 * Connection test with 2 seconds default timeout
+	 * Connection test with 2000 milliseconds default timeout
 	 *
 	 * @param hostname
 	 * @param port
@@ -92,21 +93,20 @@ public class NetworkUtilities {
 	 * @throws Exception
 	 */
 	public static boolean testConnection(final String hostname, final int port) throws Exception {
-		return testConnection(hostname, port, 2);
+		return testConnection(hostname, port, 2000);
 	}
 
-	public static boolean testConnection(final String hostname, final int port, final int timeoutSeconds) throws Exception {
+	/**
+	 * @param timeoutMillis connect timeout in milliseconds. A value &lt;= 0 means "no timeout" (blocks until connected or the OS gives up)
+	 */
+	public static boolean testConnection(final String hostname, final int port, final int timeoutMillis) throws Exception {
 		try (Socket socket = new Socket()) {
 			final InetSocketAddress endPoint = new InetSocketAddress(hostname, port);
 			if (endPoint.isUnresolved()) {
 				throw new Exception("Cannot resolve hostname '" + hostname + "'");
 			} else {
 				try {
-					if (timeoutSeconds < 1) {
-						socket.connect(endPoint);
-					} else {
-						socket.connect(endPoint, timeoutSeconds * 1000);
-					}
+					socket.connect(endPoint, Math.max(timeoutMillis, 0));
 					return true;
 				} catch (final IOException ioe) {
 					throw new Exception("Cannot connect to host '" + hostname + "' on port " + port + ": " + ioe.getClass().getSimpleName() + ": " + ioe.getMessage());
@@ -115,35 +115,37 @@ public class NetworkUtilities {
 		}
 	}
 
-	public static boolean testConnection(final String hostname, final int port, final int timeoutSeconds, final Proxy proxy) throws Exception {
+	/**
+	 * @param timeoutMillis connect and read timeout in milliseconds, applied both to the proxy connection and, indirectly, to the tunnelled target connection. A value &lt;= 0 means "no timeout"
+	 */
+	public static boolean testConnection(final String hostname, final int port, final int timeoutMillis, final Proxy proxy) throws Exception {
 		if (proxy == null || proxy.equals(Proxy.NO_PROXY)) {
-			return testConnection(hostname, port, timeoutSeconds);
+			return testConnection(hostname, port, timeoutMillis);
 		} else {
 			final String proxyHost = ((InetSocketAddress) proxy.address()).getHostName();
 			final int proxyPort = ((InetSocketAddress) proxy.address()).getPort();
-			try (Socket socket = new Socket(proxyHost, proxyPort)) {
-				final String proxyConnect = "CONNECT " + hostname + ":" + port;
+			final int effectiveTimeoutMillis = Math.max(timeoutMillis, 0);
+			try (Socket socket = new Socket()) {
+				socket.connect(new InetSocketAddress(proxyHost, proxyPort), effectiveTimeoutMillis);
+				socket.setSoTimeout(effectiveTimeoutMillis);
 
-				// Add proxy credentials for later use
-				//	try {
-				//		String proxyUserPass = String.format("%s:%s", System.getProperty("http.proxyUser"), System.getProperty("http.proxyPass"));
-				//		proxyConnect.concat(" HTTP/1.0\nProxy-Authorization:Basic " + Base64.encode(proxyUserPass.getBytes()));
-				//	} catch (Exception e) {
-				//	} finally {
-				//		proxyConnect.concat("\n\n");
-				//	}
-				proxyConnect.concat("\n\n");
+				// HTTP/1.1 CONNECT request, properly terminated with a blank line (CRLF CRLF)
+				final String proxyConnect = "CONNECT " + hostname + ":" + port + " HTTP/1.1\r\n"
+						+ "Host: " + hostname + ":" + port + "\r\n"
+						+ "\r\n";
 
-				socket.getOutputStream().write(proxyConnect.getBytes());
+				final OutputStream socketOutputStream = socket.getOutputStream();
+				socketOutputStream.write(proxyConnect.getBytes(StandardCharsets.US_ASCII));
+				socketOutputStream.flush();
 
 				final byte[] tmpBuffer = new byte[512];
 				try (final InputStream socketInputStream = socket.getInputStream()) {
 					final int proxyResponseLength = socketInputStream.read(tmpBuffer, 0, tmpBuffer.length);
-					if (proxyResponseLength == 0) {
-						throw new SocketException("Invalid response from proxy");
+					if (proxyResponseLength == -1) {
+						throw new SocketException("Invalid response from proxy: connection was closed before any data was received");
 					}
 
-					final String proxyResponse = new String(tmpBuffer, 0, proxyResponseLength, "UTF-8");
+					final String proxyResponse = new String(tmpBuffer, 0, proxyResponseLength, StandardCharsets.UTF_8);
 					if (proxyResponse.contains("200")) {
 						if (socketInputStream.available() > 0) {
 							// Flush any leftover message in buffer
@@ -269,38 +271,34 @@ public class NetworkUtilities {
 	}
 
 	public static List<X509Certificate> getTlsServerCertificates(final String host, final int port, final Proxy proxy, final boolean noCertCheck) throws Exception {
-		try {
-			final HttpsURLConnection httpsURLConnection;
-			if (proxy == null) {
-				httpsURLConnection = (HttpsURLConnection) URI.create("https://" + host + ":" + port).toURL().openConnection();
-			} else {
-				httpsURLConnection = (HttpsURLConnection) URI.create("https://" + host + ":" + port).toURL().openConnection(proxy);
-			}
-
-			if (noCertCheck) {
-				final TrustManager trustManager = TrustManagerUtilities.createTrustAllTrustManager();
-				final SSLContext sslContext = SSLContext.getInstance("TLS");
-				sslContext.init(null, new TrustManager[] { trustManager }, new SecureRandom());
-				final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
-				httpsURLConnection.setSSLSocketFactory(sslSocketFactory);
-				final HostnameVerifier trustAllHostnamesHostnameverifier = (hostname, session) -> true;
-				httpsURLConnection.setHostnameVerifier(trustAllHostnamesHostnameverifier);
-			}
-
-			final List<X509Certificate> serverCertificates = new ArrayList<>();
-			httpsURLConnection.connect();
-			final Certificate[] certificates = httpsURLConnection.getServerCertificates();
-			for (final Certificate certificate : certificates) {
-				if (certificate instanceof X509Certificate) {
-					serverCertificates.add((X509Certificate) certificate);
-				} else {
-					throw new Exception("Unknown certificate type: " + certificate.getClass());
-				}
-			}
-			return serverCertificates;
-		} catch (final Exception e) {
-			throw e;
+		final HttpsURLConnection httpsURLConnection;
+		if (proxy == null) {
+			httpsURLConnection = (HttpsURLConnection) URI.create("https://" + host + ":" + port).toURL().openConnection();
+		} else {
+			httpsURLConnection = (HttpsURLConnection) URI.create("https://" + host + ":" + port).toURL().openConnection(proxy);
 		}
+
+		if (noCertCheck) {
+			final TrustManager trustManager = TrustManagerUtilities.createTrustAllTrustManager();
+			final SSLContext sslContext = SSLContext.getInstance("TLS");
+			sslContext.init(null, new TrustManager[] { trustManager }, new SecureRandom());
+			final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
+			httpsURLConnection.setSSLSocketFactory(sslSocketFactory);
+			final HostnameVerifier trustAllHostnamesHostnameverifier = (hostname, session) -> true;
+			httpsURLConnection.setHostnameVerifier(trustAllHostnamesHostnameverifier);
+		}
+
+		final List<X509Certificate> serverCertificates = new ArrayList<>();
+		httpsURLConnection.connect();
+		final Certificate[] certificates = httpsURLConnection.getServerCertificates();
+		for (final Certificate certificate : certificates) {
+			if (certificate instanceof X509Certificate) {
+				serverCertificates.add((X509Certificate) certificate);
+			} else {
+				throw new Exception("Unknown certificate type: " + certificate.getClass());
+			}
+		}
+		return serverCertificates;
 	}
 
 	public static String getProtocolFromRequestString(final String requestString) {
