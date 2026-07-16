@@ -448,7 +448,7 @@ public class NetworkUtilities {
 			return false;
 		} else if (suffix == null) {
 			// suffix is null but data is not
-			return true;
+			return false;
 		} else if (data.toLowerCase().endsWith(suffix.toLowerCase())) {
 			// both are set, so ignore the case for standard endsWith-method
 			return true;
