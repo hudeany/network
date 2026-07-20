@@ -34,19 +34,21 @@ public class TlsCheckConfiguration {
 	private final TlsCheckConfigurationType type;
 	private final File trustoreOrPemFile;
 	private final char[] trustorePassword;
+	private final boolean checkCn;
 
-	public TlsCheckConfiguration(final TlsCheckConfigurationType type) {
-		this(type, null);
+	public TlsCheckConfiguration(final TlsCheckConfigurationType type, final boolean checkCn) {
+		this(type, null, checkCn);
 	}
 
-	public TlsCheckConfiguration(final TlsCheckConfigurationType type, final File trustoreOrPemFile) {
-		this(type, trustoreOrPemFile, null);
+	public TlsCheckConfiguration(final TlsCheckConfigurationType type, final File trustoreOrPemFile, final boolean checkCn) {
+		this(type, trustoreOrPemFile, null, checkCn);
 	}
 
-	public TlsCheckConfiguration(final TlsCheckConfigurationType type, final File trustoreFile, final char[] trustorePassword) {
+	public TlsCheckConfiguration(final TlsCheckConfigurationType type, final File trustoreFile, final char[] trustorePassword, final boolean checkCn) {
 		this.type = type;
 		trustoreOrPemFile = trustoreFile;
 		this.trustorePassword = trustorePassword;
+		this.checkCn = checkCn;
 
 		if (type == TlsCheckConfigurationType.TrustStoreFile && trustoreOrPemFile == null) {
 			throw new IllegalArgumentException("TlsCheckConfigurationType 'TrustStoreFile' needs truststore file parameter not to be null");
@@ -95,5 +97,9 @@ public class TlsCheckConfiguration {
 
 	public char[] getTrustorePassword() {
 		return trustorePassword;
+	}
+
+	public boolean getCheckCn() {
+		return checkCn;
 	}
 }

@@ -30,6 +30,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Random;
@@ -55,8 +56,8 @@ public class HttpUtilities {
 	private static HostnameVerifier TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER = (hostname, session) -> true;
 
 	/**
-	 * Use systems default proxy, if set on JVM start.
-	 * Use systems default KeyStore to check TLS server certificates.
+	 * Use systems default proxy, if set on JVM start. Use systems default KeyStore
+	 * to check TLS server certificates.
 	 *
 	 * @param httpRequest
 	 * @return
@@ -67,8 +68,8 @@ public class HttpUtilities {
 	}
 
 	/**
-	 * Use systems default proxy, if set on JVM start.
-	 * To override default proxy usage use "executeHttpRequest(httpRequest, Proxy.NO_PROXY)"
+	 * Use systems default proxy, if set on JVM start. To override default proxy
+	 * usage use "executeHttpRequest(httpRequest, Proxy.NO_PROXY)"
 	 *
 	 * Use systems default KeyStore to check TLS server certificates.
 	 *
@@ -80,19 +81,24 @@ public class HttpUtilities {
 		return executeHttpRequest(httpRequest, proxy, (TrustManager) null, false);
 	}
 
-	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final KeyStore trustedKeyStore) throws Exception {
+	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy,
+			final KeyStore trustedKeyStore) throws Exception {
 		if (trustedKeyStore.size() <= 0) {
 			throw new Exception("No trusted certificate aliases found in defined trusted keystore");
 		} else {
-			return executeHttpRequest(httpRequest, proxy, TrustManagerUtilities.createTrustManagerForKeyStore(trustedKeyStore), false);
+			return executeHttpRequest(httpRequest, proxy,
+					TrustManagerUtilities.createTrustManagerForKeyStore(trustedKeyStore), false);
 		}
 	}
 
-	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final TrustManager trustManager, final boolean deactivateHostnameVerification) throws Exception {
+	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy,
+			final TrustManager trustManager, final boolean deactivateHostnameVerification) throws Exception {
 		return executeHttpRequest(httpRequest, proxy, null, null, trustManager, deactivateHostnameVerification);
 	}
 
-	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy, final String proxyUsername, final String proxyPassword, final TrustManager trustManager, final boolean deactivateHostnameVerification) throws Exception {
+	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy,
+			final String proxyUsername, final String proxyPassword, final TrustManager trustManager,
+			final boolean deactivateHostnameVerification) throws Exception {
 		try {
 			String requestedUrl = httpRequest.getUrlWithProtocol();
 
@@ -100,7 +106,8 @@ public class HttpUtilities {
 			String parametersFromUrl;
 			if (requestedUrl.contains("?")) {
 				if (requestedUrl.contains("#")) {
-					parametersFromUrl = requestedUrl.substring(requestedUrl.indexOf("?") + 1, requestedUrl.indexOf("#"));
+					parametersFromUrl = requestedUrl.substring(requestedUrl.indexOf("?") + 1,
+							requestedUrl.indexOf("#"));
 					requestedUrl = requestedUrl.substring(0, requestedUrl.indexOf("?"));
 				} else {
 					parametersFromUrl = requestedUrl.substring(requestedUrl.indexOf("?") + 1);
@@ -112,7 +119,8 @@ public class HttpUtilities {
 
 			// Prepare GET parameters data
 			if (httpRequest.getUrlParameters() != null && httpRequest.getUrlParameters().size() > 0) {
-				final String getParameterString = convertToParameterString(httpRequest.getUrlParameters(), httpRequest.getEncoding());
+				final String getParameterString = convertToParameterString(httpRequest.getUrlParameters(),
+						httpRequest.getEncoding());
 				if (parametersFromUrl.length() > 0) {
 					requestedUrl += "?" + parametersFromUrl + "&" + getParameterString;
 				} else {
@@ -126,14 +134,17 @@ public class HttpUtilities {
 				System.out.println("Requested URL: " + requestedUrl);
 			}
 
-			final HttpURLConnection urlConnection = (HttpURLConnection) URI.create(requestedUrl).toURL().openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+			final HttpURLConnection urlConnection = (HttpURLConnection) URI.create(requestedUrl).toURL()
+					.openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
 			urlConnection.setInstanceFollowRedirects(false);
 			if (httpRequest.getRequestMethod() != null) {
 				urlConnection.setRequestMethod(httpRequest.getRequestMethod().name());
 			}
 			if (proxy != null && !proxy.equals(Proxy.NO_PROXY) && proxyUsername != null && proxyPassword != null) {
 				final String proxyCredentials = proxyUsername + ":" + proxyPassword;
-				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_PROXY_AUTHORIZATION, HttpConstants.AUTHORIZATIONHEADER_START_BASIC + " " + Base64.getEncoder().encodeToString(proxyCredentials.getBytes(StandardCharsets.UTF_8)));
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_PROXY_AUTHORIZATION,
+						HttpConstants.AUTHORIZATIONHEADER_START_BASIC + " " + Base64.getEncoder()
+								.encodeToString(proxyCredentials.getBytes(StandardCharsets.UTF_8)));
 			}
 
 			if (requestedUrl.toLowerCase().startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN)) {
@@ -177,7 +188,8 @@ public class HttpUtilities {
 					if (cookieValue.length() > 0) {
 						cookieValue.append("; ");
 					}
-					cookieValue.append(encodeForCookie(cookieEntry.getKey()) + "=" + encodeForCookie(cookieEntry.getValue()));
+					cookieValue.append(
+							encodeForCookie(cookieEntry.getKey()) + "=" + encodeForCookie(cookieEntry.getValue()));
 				}
 
 				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_COOKIE, cookieValue.toString());
@@ -195,7 +207,8 @@ public class HttpUtilities {
 				urlConnection.setDoOutput(true);
 
 				final String httpRequestBody = httpRequest.getRequestBody();
-				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8 : httpRequest.getEncoding();
+				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8
+						: httpRequest.getEncoding();
 				final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
 
 				boolean containsHeaderContentType = false;
@@ -209,24 +222,30 @@ public class HttpUtilities {
 				}
 
 				if (!containsHeaderContentType) {
-					urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, "text/plain; charset=" + encoding);
+					urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
+							"text/plain; charset=" + encoding);
 				}
 
-				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH, Integer.toString(httpRequestBodyData.length));
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH,
+						Integer.toString(httpRequestBodyData.length));
 				try (OutputStream outputStream = urlConnection.getOutputStream()) {
 					outputStream.write(httpRequestBodyData);
 					outputStream.flush();
 				}
-			} else if (httpRequest.getUploadFileAttachments() != null && httpRequest.getUploadFileAttachments().size() > 0) {
+			} else if (httpRequest.getUploadFileAttachments() != null
+					&& httpRequest.getUploadFileAttachments().size() > 0) {
 				urlConnection.setDoOutput(true);
-				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, HttpContentType.MultipartForm.getStringRepresentation() + "; boundary=" + boundary);
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
+						HttpContentType.MultipartForm.getStringRepresentation() + "; boundary=" + boundary);
 
 				try (OutputStream outputStream = urlConnection.getOutputStream()) {
 					if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
 						for (final Entry<String, List<Object>> entry : httpRequest.getPostParameters().entrySet()) {
 							for (final Object value : entry.getValue()) {
 								outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-								outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\"" + urlEncode(entry.getKey(), StandardCharsets.UTF_8) + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+								outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\""
+										+ urlEncode(entry.getKey(), StandardCharsets.UTF_8) + "\"\r\n")
+												.getBytes(StandardCharsets.UTF_8));
 								outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
 								if (value != null) {
 									outputStream.write(value.toString().getBytes(StandardCharsets.UTF_8));
@@ -238,7 +257,9 @@ public class HttpUtilities {
 
 					for (final UploadFileAttachment uploadFileAttachment : httpRequest.getUploadFileAttachments()) {
 						outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-						outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\"" + uploadFileAttachment.getHtmlInputName() + "\"; filename=\"" + uploadFileAttachment.getFileName() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+						outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\""
+								+ uploadFileAttachment.getHtmlInputName() + "\"; filename=\""
+								+ uploadFileAttachment.getFileName() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
 						outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
 
 						outputStream.write(uploadFileAttachment.getData());
@@ -263,7 +284,8 @@ public class HttpUtilities {
 				}
 
 				if (!containsHeaderContentType) {
-					urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, HttpContentType.HtmlForm.getStringRepresentation());
+					urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
+							HttpContentType.HtmlForm.getStringRepresentation());
 				}
 
 				final String httpRequestBody = convertToParameterString(httpRequest.getPostParameters(), null);
@@ -273,10 +295,12 @@ public class HttpUtilities {
 					System.out.println(httpRequestBody);
 				}
 
-				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8 : httpRequest.getEncoding();
+				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8
+						: httpRequest.getEncoding();
 				final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
 
-				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH, Integer.toString(httpRequestBodyData.length));
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH,
+						Integer.toString(httpRequestBodyData.length));
 				try (OutputStream outputStream = urlConnection.getOutputStream()) {
 					outputStream.write(httpRequestBodyData);
 					outputStream.flush();
@@ -309,7 +333,8 @@ public class HttpUtilities {
 					for (final String cookie : cookiesData.split(";")) {
 						final String[] cookieParts = cookie.split("=");
 						if (cookieParts.length == 2) {
-							cookiesMap.put(urlDecode(cookieParts[0].trim(), StandardCharsets.UTF_8), urlDecode(cookieParts[1].trim(), StandardCharsets.UTF_8));
+							cookiesMap.put(urlDecode(cookieParts[0].trim(), StandardCharsets.UTF_8),
+									urlDecode(cookieParts[1].trim(), StandardCharsets.UTF_8));
 						}
 					}
 				}
@@ -320,12 +345,16 @@ public class HttpUtilities {
 				if (httpRequest.getDownloadStream() != null && 200 <= httpResponseCode && httpResponseCode <= 299) {
 					NetworkUtilities.copy(urlConnection.getInputStream(), httpRequest.getDownloadStream());
 					final String ipAddress = getIpAddress(urlConnection);
-					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), "File downloaded", urlConnection.getContentType(), headers, cookiesMap);
-				} else if (httpRequest.getDownloadFile() != null && 200 <= httpResponseCode && httpResponseCode <= 299) {
-					try (FileOutputStream downloadFileOutputStream = new FileOutputStream(httpRequest.getDownloadFile())) {
+					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
+							"File downloaded", urlConnection.getContentType(), headers, cookiesMap);
+				} else if (httpRequest.getDownloadFile() != null && 200 <= httpResponseCode
+						&& httpResponseCode <= 299) {
+					try (FileOutputStream downloadFileOutputStream = new FileOutputStream(
+							httpRequest.getDownloadFile())) {
 						NetworkUtilities.copy(urlConnection.getInputStream(), downloadFileOutputStream);
 						final String ipAddress = getIpAddress(urlConnection);
-						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), "File downloaded", urlConnection.getContentType(), headers, cookiesMap);
+						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
+								"File downloaded", urlConnection.getContentType(), headers, cookiesMap);
 					} catch (final Exception e) {
 						if (httpRequest.getDownloadFile().exists()) {
 							httpRequest.getDownloadFile().delete();
@@ -333,7 +362,8 @@ public class HttpUtilities {
 						throw e;
 					}
 				} else {
-					try (BufferedReader httpResponseContentReader = new BufferedReader(new InputStreamReader(urlConnection.getInputStream(), encoding))) {
+					try (BufferedReader httpResponseContentReader = new BufferedReader(
+							new InputStreamReader(urlConnection.getInputStream(), encoding))) {
 						final StringBuilder httpResponseContent = new StringBuilder();
 						String httpResponseContentLine;
 						while ((httpResponseContentLine = httpResponseContentReader.readLine()) != null) {
@@ -343,23 +373,29 @@ public class HttpUtilities {
 							httpResponseContent.append(httpResponseContentLine);
 						}
 						final String ipAddress = getIpAddress(urlConnection);
-						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap);
+						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
+								httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap);
 					} catch (@SuppressWarnings("unused") final Exception e) {
 						final String ipAddress = getIpAddress(urlConnection);
-						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null, null, headers, cookiesMap);
+						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null,
+								null, headers, cookiesMap);
 					}
 				}
-			} else if ((httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP || httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM) && httpRequest.isFollowRedirects()) {
+			} else if ((httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP
+					|| httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM) && httpRequest.isFollowRedirects()) {
 				// Optionally follow redirections (HttpCodes 301 and 302)
 				final String redirectUrl = urlConnection.getHeaderField("Location");
 				if (NetworkUtilities.isNotBlank(redirectUrl)) {
-					final HttpRequest redirectedHttpRequest = new HttpRequest(httpRequest.getRequestMethod(), redirectUrl);
-					return executeHttpRequest(redirectedHttpRequest, proxy, trustManager, deactivateHostnameVerification);
+					final HttpRequest redirectedHttpRequest = new HttpRequest(httpRequest.getRequestMethod(),
+							redirectUrl);
+					return executeHttpRequest(redirectedHttpRequest, proxy, trustManager,
+							deactivateHostnameVerification);
 				} else {
 					throw new Exception("Redirection url was empty");
 				}
 			} else {
-				try (BufferedReader httpResponseContentReader = new BufferedReader(new InputStreamReader(urlConnection.getErrorStream(), encoding))) {
+				try (BufferedReader httpResponseContentReader = new BufferedReader(
+						new InputStreamReader(urlConnection.getErrorStream(), encoding))) {
 					final StringBuilder httpResponseContent = new StringBuilder();
 					String httpResponseContentLine;
 					while ((httpResponseContentLine = httpResponseContentReader.readLine()) != null) {
@@ -369,16 +405,24 @@ public class HttpUtilities {
 						httpResponseContent.append(httpResponseContentLine);
 					}
 					final String ipAddress = getIpAddress(urlConnection);
-					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap);
+					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
+							httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap);
 				} catch (@SuppressWarnings("unused") final Exception e) {
 					final String ipAddress = getIpAddress(urlConnection);
-					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null, null, headers, cookiesMap);
+					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null, null,
+							headers, cookiesMap);
 				}
 			}
 		} catch (final UnknownHostException e) {
 			throw new Exception("Unknown host '" + e.getMessage() + "'", e);
 		} catch (final SSLHandshakeException e) {
-			throw new Exception("Cannot validate TLS server certificate for URL '" + httpRequest.getUrlWithProtocol() + "'", e);
+			final Throwable cause = e.getCause();
+			if (cause instanceof CertificateException && cause.getMessage() != null
+					&& cause.getMessage().toLowerCase(Locale.ROOT).contains("no name matching")) {
+				throw new Exception("Cannot validate TLS server certificate for URL '" + httpRequest.getUrlWithProtocol() + "' (Hostname error)", e);
+			} else {
+				throw new Exception("Cannot validate TLS server certificate for URL '" + httpRequest.getUrlWithProtocol() + "' (Certificate chain error)", e);
+			}
 		} catch (final Exception e) {
 			throw e;
 		} finally {
@@ -429,33 +473,35 @@ public class HttpUtilities {
 		}
 	}
 
-	public static void pingUrlWithoutSslCheckNoWaitForAnswer(final String pingUrl, final Proxy proxy) throws IOException, NoSuchAlgorithmException, KeyManagementException {
+	public static void pingUrlWithoutSslCheckNoWaitForAnswer(final String pingUrl, final Proxy proxy)
+			throws IOException, NoSuchAlgorithmException, KeyManagementException {
 		InputStream downloadStream = null;
 		try {
 			if (pingUrl.startsWith("https")) {
 				// Deactivate SSL-Certificates check
 				final SSLContext sslContext = SSLContext.getInstance(TLS_VERSION);
-				final TrustManager[] tms = new TrustManager[] {
-						new X509TrustManager() {
-							@Override
-							public X509Certificate[] getAcceptedIssuers() {
-								return null;
-							}
+				final TrustManager[] tms = new TrustManager[] { new X509TrustManager() {
+					@Override
+					public X509Certificate[] getAcceptedIssuers() {
+						return null;
+					}
 
-							@Override
-							public void checkServerTrusted(final X509Certificate[] arg0, final String arg1) throws CertificateException {
-								// nothing to do
-							}
+					@Override
+					public void checkServerTrusted(final X509Certificate[] arg0, final String arg1)
+							throws CertificateException {
+						// nothing to do
+					}
 
-							@Override
-							public void checkClientTrusted(final X509Certificate[] arg0, final String arg1) throws CertificateException {
-								// nothing to do
-							}
-						}
-				};
+					@Override
+					public void checkClientTrusted(final X509Certificate[] arg0, final String arg1)
+							throws CertificateException {
+						// nothing to do
+					}
+				} };
 				sslContext.init(null, tms, null);
 				final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
-				final HttpsURLConnection urlConnection = (HttpsURLConnection) URI.create(pingUrl).toURL().openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+				final HttpsURLConnection urlConnection = (HttpsURLConnection) URI.create(pingUrl).toURL()
+						.openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
 				urlConnection.setSSLSocketFactory(sslSocketFactory);
 				urlConnection.setRequestMethod("POST");
 				urlConnection.setConnectTimeout(5000);
@@ -464,7 +510,8 @@ public class HttpUtilities {
 				urlConnection.setDoOutput(false);
 				downloadStream = urlConnection.getInputStream();
 			} else {
-				final HttpURLConnection urlConnection = (HttpURLConnection) URI.create(pingUrl).toURL().openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+				final HttpURLConnection urlConnection = (HttpURLConnection) URI.create(pingUrl).toURL()
+						.openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
 				urlConnection.setRequestMethod("POST");
 				urlConnection.setConnectTimeout(5000);
 				urlConnection.setReadTimeout(100);
@@ -491,13 +538,15 @@ public class HttpUtilities {
 		if (encoding == null) {
 			valueList.add(HttpContentType.HtmlForm.getStringRepresentation());
 		} else {
-			valueList.add(HttpContentType.HtmlForm.getStringRepresentation() + "; charset=" + encoding.name().toLowerCase());
+			valueList.add(
+					HttpContentType.HtmlForm.getStringRepresentation() + "; charset=" + encoding.name().toLowerCase());
 		}
 		returnMap.put(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, valueList);
 		return returnMap;
 	}
 
-	public static String addUrlParameter(final String url, final String parameterName, final Object parameterValue, final Charset encodingCharSet) {
+	public static String addUrlParameter(final String url, final String parameterName, final Object parameterValue,
+			final Charset encodingCharSet) {
 		final StringBuilder escapedParameterNameAndValue = new StringBuilder();
 
 		if (encodingCharSet == null) {
@@ -580,7 +629,8 @@ public class HttpUtilities {
 		if (NetworkUtilities.isBlank(htmlText)) {
 			return null;
 		} else {
-			final Pattern parameterPattern = Pattern.compile("\\W" + parameterName + "\\s*=(\\w*)\\W", Pattern.MULTILINE);
+			final Pattern parameterPattern = Pattern.compile("\\W" + parameterName + "\\s*=(\\w*)\\W",
+					Pattern.MULTILINE);
 			final Matcher parameterMatcher = parameterPattern.matcher(htmlText);
 			if (parameterMatcher.find()) {
 				return parameterMatcher.group(1).trim();
@@ -594,7 +644,8 @@ public class HttpUtilities {
 		if (NetworkUtilities.isBlank(htmlText)) {
 			return null;
 		} else {
-			final Pattern parameterPattern = Pattern.compile("\\W" + parameterName + "\\s*=\\s\"(\\w*)\"\\W", Pattern.MULTILINE);
+			final Pattern parameterPattern = Pattern.compile("\\W" + parameterName + "\\s*=\\s\"(\\w*)\"\\W",
+					Pattern.MULTILINE);
 			final Matcher parameterMatcher = parameterPattern.matcher(htmlText);
 			if (parameterMatcher.find()) {
 				return parameterMatcher.group(1).trim();
@@ -717,7 +768,8 @@ public class HttpUtilities {
 	}
 
 	public static String createBasicAuthenticationHeaderValue(final String username, final String password) {
-		return "Basic " + Base64.getEncoder().encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
+		return "Basic "
+				+ Base64.getEncoder().encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
 	}
 
 	private static String encodeForCookie(final String value) {
@@ -738,10 +790,13 @@ public class HttpUtilities {
 		return new String(boundary);
 	}
 
-	public static X509Certificate getServerTlsCertificate(final String hostnameOrIp, final int port, final Proxy proxy) throws Exception {
-		final HttpsURLConnection urlConnection = (HttpsURLConnection) URI.create("https://" + hostnameOrIp + ":" + port).toURL().openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+	public static X509Certificate getServerTlsCertificate(final String hostnameOrIp, final int port, final Proxy proxy)
+			throws Exception {
+		final HttpsURLConnection urlConnection = (HttpsURLConnection) URI.create("https://" + hostnameOrIp + ":" + port)
+				.toURL().openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
 		final SSLContext sslContext = SSLContext.getInstance(TLS_VERSION);
-		sslContext.init(null, new TrustManager[] { TrustManagerUtilities.createTrustAllTrustManager() }, new java.security.SecureRandom());
+		sslContext.init(null, new TrustManager[] { TrustManagerUtilities.createTrustAllTrustManager() },
+				new java.security.SecureRandom());
 		final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
 		urlConnection.setSSLSocketFactory(sslSocketFactory);
 		urlConnection.setHostnameVerifier(TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER);
@@ -755,7 +810,7 @@ public class HttpUtilities {
 		for (final Certificate certificate : certificates) {
 			if (certificate instanceof X509Certificate) {
 				// Take the first certificate with alternative names
-				if (((X509Certificate)certificate).getSubjectAlternativeNames() != null) {
+				if (((X509Certificate) certificate).getSubjectAlternativeNames() != null) {
 					return (X509Certificate) certificate;
 				}
 			}
