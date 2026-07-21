@@ -136,6 +136,8 @@ public class HttpUtilities {
 
 			final HttpURLConnection urlConnection = (HttpURLConnection) URI.create(requestedUrl).toURL()
 					.openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+			httpRequest.setHttpURLConnection(urlConnection);
+
 			urlConnection.setInstanceFollowRedirects(false);
 			if (httpRequest.getRequestMethod() != null) {
 				urlConnection.setRequestMethod(httpRequest.getRequestMethod().name());
@@ -306,8 +308,6 @@ public class HttpUtilities {
 					outputStream.flush();
 				}
 			}
-
-			httpRequest.setHttpURLConnection(urlConnection);
 
 			urlConnection.connect();
 
