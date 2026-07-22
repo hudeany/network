@@ -507,7 +507,15 @@ public class HttpRequest {
 
 		final byte[] body;
 		final String transferEncoding = request.getHeaders().get("Transfer-Encoding");
-		if (transferEncoding != null && transferEncoding.toLowerCase().contains("chunked")) {
+		final boolean isChunked = transferEncoding != null && transferEncoding.toLowerCase().contains("chunked");
+		if (isChunked && request.getHeaders().get("Content-Length") != null) {
+			// Presence of both headers is a classic HTTP request smuggling vector (CL.TE / TE.CL):
+			// different intermediaries may pick different headers to determine the body length.
+			// Per RFC 7230 3.3.3 such a message must be treated as invalid rather than silently
+			// preferring one header over the other.
+			throw new IOException("Invalid HTTP request: both Transfer-Encoding: chunked and Content-Length headers are present");
+		}
+		if (isChunked) {
 			body = readChunkedBody(inputStream, deadline, maxBodySize);
 		} else {
 			final String contentLengthValue = request.getHeaders().get("Content-Length");
@@ -806,9 +814,9 @@ public class HttpRequest {
 				for (final String segment : headerValue.split(";")) {
 					final String trimmedSegment = segment.trim();
 					if (trimmedSegment.startsWith("name=")) {
-						name = stripQuotes(trimmedSegment.substring("name=".length()));
+						name = unescapeMultipartHeaderValue(stripQuotes(trimmedSegment.substring("name=".length())));
 					} else if (trimmedSegment.startsWith("filename=")) {
-						fileName = stripQuotes(trimmedSegment.substring("filename=".length()));
+						fileName = unescapeMultipartHeaderValue(stripQuotes(trimmedSegment.substring("filename=".length())));
 					}
 				}
 			}
@@ -823,6 +831,27 @@ public class HttpRequest {
 		} else {
 			request.addPostParameter(name, new String(partBody, request.getEncoding()));
 		}
+	}
+
+	/**
+	 * Reverses the escaping applied by {@code HttpUtilities.escapeMultipartHeaderValue} (backslash
+	 * and double-quote escaped per RFC 7578 4.2) when writing name="..."/filename="..." parameters,
+	 * so that values round-trip correctly instead of retaining the literal backslash-escapes.
+	 */
+	private static String unescapeMultipartHeaderValue(final String value) {
+		if (value == null || value.indexOf('\\') < 0) {
+			return value;
+		}
+		final StringBuilder result = new StringBuilder(value.length());
+		for (int i = 0; i < value.length(); i++) {
+			final char c = value.charAt(i);
+			if (c == '\\' && i + 1 < value.length()) {
+				result.append(value.charAt(++i));
+			} else {
+				result.append(c);
+			}
+		}
+		return result.toString();
 	}
 
 	private static String stripQuotes(final String value) {

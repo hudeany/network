@@ -4,7 +4,13 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.security.KeyStore;
+import java.security.MessageDigest;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.Base64;
+import java.util.Enumeration;
+import java.util.HashSet;
+import java.util.Set;
 
 import javax.net.ssl.X509TrustManager;
 
@@ -24,6 +30,13 @@ import javax.net.ssl.X509TrustManager;
  *
  * System.out.println("Response Code: " + connection.getResponseCode());
  * </pre>
+ *
+ * <p><b>Trust-on-first-use semantics:</b> if the truststore is empty, any presented certificate
+ * chain is accepted and its certificates are recorded, keyed by a SHA-256 fingerprint of the
+ * certificate's encoded bytes (not the Subject DN, which two different certificates can share).
+ * Once at least one certificate has been recorded, further connections are only accepted if the
+ * presented leaf certificate's fingerprint matches an already-recorded one; otherwise a
+ * {@link CertificateException} is thrown instead of silently accepting a different certificate.</p>
  */
 public class SavingToTruststoreTrustManager implements X509TrustManager {
 	private X509Certificate serverCertificate;
@@ -32,6 +45,7 @@ public class SavingToTruststoreTrustManager implements X509TrustManager {
 	private final char[] trustStorePassword;
 
 	private final KeyStore keyStore;
+	private final Set<String> previouslyRecordedFingerprints = new HashSet<>();
 
 	public SavingToTruststoreTrustManager(final File trustStoreFile, final char[] trustStorePassword) throws Exception {
 		this.trustStoreFile = trustStoreFile;
@@ -42,9 +56,22 @@ public class SavingToTruststoreTrustManager implements X509TrustManager {
 			try (FileInputStream fis = new FileInputStream(trustStoreFile)) {
 				keyStore.load(fis, trustStorePassword);
 			}
+			final Enumeration<String> aliases = keyStore.aliases();
+			while (aliases.hasMoreElements()) {
+				final String alias = aliases.nextElement();
+				final java.security.cert.Certificate certificate = keyStore.getCertificate(alias);
+				if (certificate != null) {
+					previouslyRecordedFingerprints.add(fingerprint(certificate.getEncoded()));
+				}
+			}
 		} else {
 			keyStore.load(null, null);
 		}
+	}
+
+	private static String fingerprint(final byte[] encodedCertificate) throws Exception {
+		final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+		return Base64.getEncoder().encodeToString(digest.digest(encodedCertificate));
 	}
 
 	public X509Certificate getServerCertificate() {
@@ -57,18 +84,34 @@ public class SavingToTruststoreTrustManager implements X509TrustManager {
 	}
 
 	@Override
-	public void checkServerTrusted(final X509Certificate[] chain, final String authType) {
+	public void checkServerTrusted(final X509Certificate[] chain, final String authType) throws CertificateException {
 		try {
-			if (chain != null) {
-				if (chain.length > 0) {
+			if (chain != null && chain.length > 0) {
+				if (!previouslyRecordedFingerprints.isEmpty()) {
+					// Certificates were already recorded earlier: only accept if the presented leaf
+					// certificate matches one we have already seen. Comparing by fingerprint (rather
+					// than by Subject DN, which two different certificates can share) avoids silently
+					// accepting an unrelated certificate that merely reuses a known subject name.
+					final String presentedFingerprint = fingerprint(chain[0].getEncoded());
+					if (!previouslyRecordedFingerprints.contains(presentedFingerprint)) {
+						throw new CertificateException("Presented server certificate does not match any certificate previously recorded in '"
+								+ trustStoreFile.getAbsolutePath() + "' - possible certificate change or man-in-the-middle attempt");
+					}
 					serverCertificate = chain[0];
+					return;
 				}
 
+				serverCertificate = chain[0];
+
 				boolean newCertificateAdded = false;
-				for (int i = 0; i < chain.length; i++) {
-					final String alias = chain[i].getSubjectX500Principal().getName();
-					if (keyStore.getCertificate(alias) == null) {
-						keyStore.setCertificateEntry(alias, chain[i]);
+				for (final X509Certificate cert : chain) {
+					// Keyed by fingerprint instead of Subject DN, so two different certificates that
+					// happen to share a subject name are stored as distinct entries rather than one
+					// silently shadowing the other.
+					final String certFingerprint = fingerprint(cert.getEncoded());
+					if (!previouslyRecordedFingerprints.contains(certFingerprint)) {
+						keyStore.setCertificateEntry(certFingerprint, cert);
+						previouslyRecordedFingerprints.add(certFingerprint);
 						newCertificateAdded = true;
 					}
 				}
@@ -79,6 +122,8 @@ public class SavingToTruststoreTrustManager implements X509TrustManager {
 					}
 				}
 			}
+		} catch (final CertificateException e) {
+			throw e;
 		} catch (final Exception e) {
 			throw new RuntimeException(e);
 		}
