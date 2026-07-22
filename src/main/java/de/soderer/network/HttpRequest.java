@@ -42,7 +42,18 @@ public class HttpRequest {
 	private final Map<String, Object> pathParameterData = new LinkedHashMap<>();
 	private final Map<String, String> cookieData = new LinkedHashMap<>();
 
-	private boolean followRedirects = false;
+	/**
+	 * Controls automatic redirect following:
+	 * <ul>
+	 *   <li>{@code 0} (default): do not follow redirects</li>
+	 *   <li>negative: follow redirects without a hop limit</li>
+	 *   <li>positive: follow redirects up to this many hops, then fail</li>
+	 * </ul>
+	 */
+	private int maxRedirects = 0;
+
+	/** Default hop limit used by the {@link #setFollowRedirects(boolean)} convenience method */
+	public static final int DEFAULT_MAX_REDIRECTS = 25;
 
 	/**
 	 * Temporary accessible url connection for interrupting the connection on long timeouts
@@ -320,7 +331,7 @@ public class HttpRequest {
 		} else if (uploadFileAttachments.size() > 0) {
 			throw new Exception("UploadFileAttachments are already set. RequestBody cannot be set therefore");
 		} else if (requestBody != null) {
-			throw new Exception("UploadFileAttachments are already set. RequestBody cannot be set therefore");
+			throw new Exception("RequestBody is already set. RequestBodyContentStream cannot be set therefore");
 		} else {
 			this.requestBodyContentStream = requestBodyContentStream;
 
@@ -328,12 +339,28 @@ public class HttpRequest {
 		}
 	}
 
-	public boolean isFollowRedirects() {
-		return followRedirects;
+	public int getMaxRedirects() {
+		return maxRedirects;
 	}
 
+	/**
+	 * @param maxRedirects 0 = do not follow redirects, negative = follow redirects without a hop limit,
+	 *                      positive = maximum number of redirect hops to follow before failing
+	 */
+	public HttpRequest setMaxRedirects(final int maxRedirects) {
+		this.maxRedirects = maxRedirects;
+
+		return this;
+	}
+
+	/** Convenience for existing callers: true means "follow up to {@link #DEFAULT_MAX_REDIRECTS} hops", false means "do not follow". Use {@link #setMaxRedirects(int)} for finer control (e.g. unlimited or a custom hop limit) */
+	public boolean isFollowRedirects() {
+		return maxRedirects != 0;
+	}
+
+	/** Convenience for existing callers: true means "follow up to {@link #DEFAULT_MAX_REDIRECTS} hops", false means "do not follow". Use {@link #setMaxRedirects(int)} for finer control (e.g. unlimited or a custom hop limit) */
 	public HttpRequest setFollowRedirects(final boolean followRedirects) {
-		this.followRedirects = followRedirects;
+		maxRedirects = followRedirects ? DEFAULT_MAX_REDIRECTS : 0;
 
 		return this;
 	}
@@ -621,6 +648,9 @@ public class HttpRequest {
 		return result.toByteArray();
 	}
 
+	/** Max length of a single line read via readLine() (chunk-size lines, chunk trailer headers) */
+	private static final int MAX_LINE_LENGTH = 8 * 1024; // 8 KB
+
 	private static String readLine(final InputStream inputStream, final long deadline) throws IOException {
 		final ByteArrayOutputStream lineBuffer = new ByteArrayOutputStream();
 		int previous = -1;
@@ -633,6 +663,11 @@ public class HttpRequest {
 			if (previous == '\r' && current == '\n') {
 				final byte[] lineBytes = lineBuffer.toByteArray();
 				return new String(lineBytes, 0, lineBytes.length - 1, StandardCharsets.ISO_8859_1);
+			}
+			// Without this bound, a peer that never sends a CRLF could grow this buffer without limit within
+			// the timeout window (the deadline only bounds time, not size), a resource-exhaustion DoS vector.
+			if (lineBuffer.size() >= MAX_LINE_LENGTH) {
+				throw new IOException("Line exceeds maximum allowed length of " + MAX_LINE_LENGTH + " bytes");
 			}
 			lineBuffer.write(current);
 			previous = current;

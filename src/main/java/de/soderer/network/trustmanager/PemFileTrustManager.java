@@ -3,7 +3,6 @@ package de.soderer.network.trustmanager;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileReader;
 import java.security.KeyStore;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
@@ -36,8 +35,8 @@ public class PemFileTrustManager implements X509TrustManager {
 	public PemFileTrustManager(final File pemFile) throws Exception {
 		final CertificateFactory cf = CertificateFactory.getInstance("X.509");
 		X509Certificate cert;
-		try (FileReader fr = new FileReader(pemFile)) {
-			cert = (X509Certificate) cf.generateCertificate(new BufferedInputStream(new FileInputStream(pemFile)));
+		try (BufferedInputStream certificateInputStream = new BufferedInputStream(new FileInputStream(pemFile))) {
+			cert = (X509Certificate) cf.generateCertificate(certificateInputStream);
 		}
 
 		final KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());

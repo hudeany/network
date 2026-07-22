@@ -173,8 +173,12 @@ public class NetworkUtilities {
 				httpURLConnection.setConnectTimeout(20000);
 				httpURLConnection.setReadTimeout(20000);
 				httpURLConnection.setAllowUserInteraction(false);
-				httpURLConnection.connect();
-				return true;
+				try {
+					httpURLConnection.connect();
+					return true;
+				} finally {
+					httpURLConnection.disconnect();
+				}
 			} else if (ipOrHostname.toLowerCase().trim().startsWith("https://")) {
 				final URL url = URI.create("https://" + getHostnameFromRequestString(ipOrHostname)).toURL();
 				HttpURLConnection httpURLConnection;
@@ -187,8 +191,12 @@ public class NetworkUtilities {
 				httpURLConnection.setConnectTimeout(20000);
 				httpURLConnection.setReadTimeout(20000);
 				httpURLConnection.setAllowUserInteraction(false);
-				httpURLConnection.connect();
-				return true;
+				try {
+					httpURLConnection.connect();
+					return true;
+				} finally {
+					httpURLConnection.disconnect();
+				}
 			} else {
 				return InetAddress.getByName(getHostnameFromRequestString(ipOrHostname)).isReachable(5000);
 			}
@@ -289,16 +297,21 @@ public class NetworkUtilities {
 		}
 
 		final List<X509Certificate> serverCertificates = new ArrayList<>();
-		httpsURLConnection.connect();
-		final Certificate[] certificates = httpsURLConnection.getServerCertificates();
-		for (final Certificate certificate : certificates) {
-			if (certificate instanceof X509Certificate) {
-				serverCertificates.add((X509Certificate) certificate);
-			} else {
-				throw new Exception("Unknown certificate type: " + certificate.getClass());
+		try {
+			httpsURLConnection.connect();
+			final Certificate[] certificates = httpsURLConnection.getServerCertificates();
+			for (final Certificate certificate : certificates) {
+				if (certificate instanceof X509Certificate) {
+					serverCertificates.add((X509Certificate) certificate);
+				} else {
+					throw new Exception("Unknown certificate type: " + certificate.getClass());
+				}
 			}
+			return serverCertificates;
+		} finally {
+			// Was previously never disconnected, leaking the underlying socket/connection over repeated calls
+			httpsURLConnection.disconnect();
 		}
-		return serverCertificates;
 	}
 
 	public static String getProtocolFromRequestString(final String requestString) {

@@ -99,6 +99,12 @@ public class HttpUtilities {
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy,
 			final String proxyUsername, final String proxyPassword, final TrustManager trustManager,
 			final boolean deactivateHostnameVerification) throws Exception {
+		return executeHttpRequest(httpRequest, proxy, proxyUsername, proxyPassword, trustManager, deactivateHostnameVerification, 0);
+	}
+
+	private static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy,
+			final String proxyUsername, final String proxyPassword, final TrustManager trustManager,
+			final boolean deactivateHostnameVerification, final int redirectCount) throws Exception {
 		try {
 			String requestedUrl = httpRequest.getUrlWithProtocol();
 
@@ -259,9 +265,14 @@ public class HttpUtilities {
 
 					for (final UploadFileAttachment uploadFileAttachment : httpRequest.getUploadFileAttachments()) {
 						outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+						// htmlInputName/fileName must be sanitized before being embedded in the Content-Disposition
+						// header: unlike the postParameters branch above (which URL-encodes the field name), these
+						// were previously written verbatim, so a name or filename containing '"' or CR/LF could
+						// break out of the header value and inject additional (attacker-controlled) header lines
+						// or multipart parts.
 						outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\""
-								+ uploadFileAttachment.getHtmlInputName() + "\"; filename=\""
-								+ uploadFileAttachment.getFileName() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+								+ escapeMultipartHeaderValue(uploadFileAttachment.getHtmlInputName()) + "\"; filename=\""
+								+ escapeMultipartHeaderValue(uploadFileAttachment.getFileName()) + "\"\r\n").getBytes(StandardCharsets.UTF_8));
 						outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
 
 						outputStream.write(uploadFileAttachment.getData());
@@ -311,9 +322,26 @@ public class HttpUtilities {
 
 			urlConnection.connect();
 
+			// urlConnection.getHeaderField(name) only returns a single value per header name, which silently
+			// drops data for headers that are legitimately sent multiple times (most importantly Set-Cookie,
+			// where servers typically send one header per cookie). Join multi-valued headers with ", " instead,
+			// except Set-Cookie, whose values are joined with "\n" so cookie parsing below can split them apart
+			// again without confusing a cookie's own internal ";"-separated attributes with cookie boundaries.
 			final Map<String, String> headers = new CaseInsensitiveLinkedMap<>();
-			for (final String headerName : urlConnection.getHeaderFields().keySet()) {
-				headers.put(headerName, urlConnection.getHeaderField(headerName));
+			for (final Entry<String, List<String>> headerFieldEntry : urlConnection.getHeaderFields().entrySet()) {
+				final String headerName = headerFieldEntry.getKey();
+				if (headerName == null) {
+					// The status line itself is exposed as a null-keyed entry by HttpURLConnection, skip it
+					continue;
+				}
+				final List<String> headerValues = headerFieldEntry.getValue();
+				final String joinedValue;
+				if (HttpConstants.HTTPHEADERNAME_DOWNLOAD_COOKIE.equalsIgnoreCase(headerName)) {
+					joinedValue = String.join("\n", headerValues);
+				} else {
+					joinedValue = String.join(", ", headerValues);
+				}
+				headers.put(headerName, joinedValue);
 			}
 
 			Charset encoding = StandardCharsets.UTF_8;
@@ -330,18 +358,61 @@ public class HttpUtilities {
 				final String cookiesData = headers.get(HttpConstants.HTTPHEADERNAME_DOWNLOAD_COOKIE);
 				if (cookiesData != null) {
 					cookiesMap = new LinkedHashMap<>();
-					for (final String cookie : cookiesData.split(";")) {
-						final String[] cookieParts = cookie.split("=");
-						if (cookieParts.length == 2) {
-							cookiesMap.put(urlDecode(cookieParts[0].trim(), StandardCharsets.UTF_8),
-									urlDecode(cookieParts[1].trim(), StandardCharsets.UTF_8));
+					// Each line here is one full Set-Cookie header value (joined above with "\n" for multiple headers).
+					// Only its first ";"-segment is the actual "name=value" pair; everything after that are
+					// cookie attributes (Path, Domain, Expires, Max-Age, Secure, HttpOnly, SameSite, ...) and
+					// must not be treated as additional cookies.
+					for (final String cookieHeaderValue : cookiesData.split("\n")) {
+						if (NetworkUtilities.isBlank(cookieHeaderValue)) {
+							continue;
+						}
+						final String nameValuePart = cookieHeaderValue.split(";", 2)[0].trim();
+						final int equalsIndex = nameValuePart.indexOf('=');
+						if (equalsIndex > 0) {
+							// Split on the first "=" only, since the cookie value itself may legitimately contain "="
+							final String cookieName = nameValuePart.substring(0, equalsIndex).trim();
+							final String cookieValue = nameValuePart.substring(equalsIndex + 1).trim();
+							cookiesMap.put(urlDecode(cookieName, StandardCharsets.UTF_8),
+									urlDecode(cookieValue, StandardCharsets.UTF_8));
 						}
 					}
 				}
 			}
 
 			final int httpResponseCode = urlConnection.getResponseCode();
-			if (httpResponseCode < HttpURLConnection.HTTP_BAD_REQUEST) {
+			final boolean isRedirectResponseCode = httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP
+					|| httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM
+					|| httpResponseCode == HttpURLConnection.HTTP_SEE_OTHER;
+			if (isRedirectResponseCode && httpRequest.getMaxRedirects() != 0) {
+				// Optionally follow redirections (HttpCodes 301, 302 and 303)
+				// NOTE: this check must happen before the "httpResponseCode < 400" success branch below,
+				// since 301/302/303 are all < 400 and would otherwise always be swallowed there first.
+				final int maxRedirects = httpRequest.getMaxRedirects();
+				if (maxRedirects > 0 && redirectCount >= maxRedirects) {
+					throw new Exception("Too many redirects (>" + maxRedirects + ") while requesting URL '" + httpRequest.getUrlWithProtocol() + "'");
+				}
+				final String redirectUrl = urlConnection.getHeaderField("Location");
+				if (NetworkUtilities.isNotBlank(redirectUrl)) {
+					// Carry over headers, cookies, timeouts and encoding of the original request instead of
+					// silently dropping them (e.g. an Authorization header must survive the redirect)
+					final HttpRequest redirectedHttpRequest = new HttpRequest(httpRequest.getRequestMethod(), redirectUrl);
+					for (final Entry<String, String> headerEntry : httpRequest.getHeaders().entrySet()) {
+						redirectedHttpRequest.addHeader(headerEntry.getKey(), headerEntry.getValue());
+					}
+					for (final Entry<String, String> cookieEntry : httpRequest.getCookieData().entrySet()) {
+						redirectedHttpRequest.addCookieData(cookieEntry.getKey(), cookieEntry.getValue());
+					}
+					redirectedHttpRequest.setEncoding(httpRequest.getEncoding());
+					redirectedHttpRequest.setConnectionTimeoutMillis(httpRequest.getConnectTimeoutMillis());
+					redirectedHttpRequest.setReadTimeoutMillis(httpRequest.getReadTimeoutMillis());
+					// Propagate the same hop-limit semantics (unlimited stays unlimited, a finite limit stays the same limit)
+					redirectedHttpRequest.setMaxRedirects(maxRedirects);
+					return executeHttpRequest(redirectedHttpRequest, proxy, proxyUsername, proxyPassword, trustManager,
+							deactivateHostnameVerification, redirectCount + 1);
+				} else {
+					throw new Exception("Redirection url was empty");
+				}
+			} else if (httpResponseCode < HttpURLConnection.HTTP_BAD_REQUEST) {
 				if (httpRequest.getDownloadStream() != null && 200 <= httpResponseCode && httpResponseCode <= 299) {
 					NetworkUtilities.copy(urlConnection.getInputStream(), httpRequest.getDownloadStream());
 					final String ipAddress = getIpAddress(urlConnection);
@@ -380,18 +451,6 @@ public class HttpUtilities {
 						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null,
 								null, headers, cookiesMap);
 					}
-				}
-			} else if ((httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP
-					|| httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM) && httpRequest.isFollowRedirects()) {
-				// Optionally follow redirections (HttpCodes 301 and 302)
-				final String redirectUrl = urlConnection.getHeaderField("Location");
-				if (NetworkUtilities.isNotBlank(redirectUrl)) {
-					final HttpRequest redirectedHttpRequest = new HttpRequest(httpRequest.getRequestMethod(),
-							redirectUrl);
-					return executeHttpRequest(redirectedHttpRequest, proxy, trustManager,
-							deactivateHostnameVerification);
-				} else {
-					throw new Exception("Redirection url was empty");
 				}
 			} else {
 				try (BufferedReader httpResponseContentReader = new BufferedReader(
@@ -770,6 +829,20 @@ public class HttpUtilities {
 	public static String createBasicAuthenticationHeaderValue(final String username, final String password) {
 		return "Basic "
 				+ Base64.getEncoder().encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
+	}
+
+	/**
+	 * Sanitizes a value that is embedded in a quoted multipart Content-Disposition header parameter
+	 * (name="..." / filename="..."). Strips CR and LF (which would otherwise allow injecting additional
+	 * header lines or multipart boundaries/parts) and escapes backslashes and double quotes per RFC 7578 §4.2.
+	 */
+	private static String escapeMultipartHeaderValue(final String value) {
+		if (value == null) {
+			return "";
+		}
+		return value.replace("\r", "").replace("\n", "")
+				.replace("\\", "\\\\")
+				.replace("\"", "\\\"");
 	}
 
 	private static String encodeForCookie(final String value) {

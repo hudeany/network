@@ -1,5 +1,6 @@
 package de.soderer.network.trustmanager;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -14,6 +15,7 @@ import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
 import de.soderer.network.HttpUtilities;
+import de.soderer.network.NetworkUtilities;
 
 public class TrustManagerUtilities {
 	public static TrustManager[] getDefaultTrustManagers() throws Exception {
@@ -64,11 +66,19 @@ public class TrustManagerUtilities {
 	}
 
 	public static KeyStore readKeyStore(final InputStream keystoreInputStream, final char[] keystorePassword) throws Exception {
+		final java.io.ByteArrayOutputStream keystoreBuffer = new java.io.ByteArrayOutputStream();
+		NetworkUtilities.copy(keystoreInputStream, keystoreBuffer);
+		final byte[] keystoreBytes = keystoreBuffer.toByteArray();
+
 		KeyStore trustedKeyStore = KeyStore.getInstance(KeyStore.getDefaultType());
-		trustedKeyStore.load(keystoreInputStream, keystorePassword);
+		try (InputStream firstAttemptStream = new ByteArrayInputStream(keystoreBytes)) {
+			trustedKeyStore.load(firstAttemptStream, keystorePassword);
+		}
 		if (trustedKeyStore.size() == 0 && keystorePassword == null) {
 			trustedKeyStore = KeyStore.getInstance(KeyStore.getDefaultType());
-			trustedKeyStore.load(keystoreInputStream, "".toCharArray());
+			try (InputStream retryStream = new ByteArrayInputStream(keystoreBytes)) {
+				trustedKeyStore.load(retryStream, "".toCharArray());
+			}
 		}
 		return trustedKeyStore;
 	}
