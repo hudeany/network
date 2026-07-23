@@ -97,6 +97,7 @@ public class SavingToPemFileTrustManager implements X509TrustManager {
 						writer.write("-----BEGIN CERTIFICATE-----\n");
 						writer.write(Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(cert.getEncoded()));
 						writer.write("\n-----END CERTIFICATE-----\n");
+						previouslyRecordedFingerprints.add(fingerprint(cert.getEncoded()));
 					}
 				}
 			}

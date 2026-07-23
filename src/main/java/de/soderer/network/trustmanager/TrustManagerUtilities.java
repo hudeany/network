@@ -130,8 +130,7 @@ public class TrustManagerUtilities {
 	 * @throws Exception
 	 */
 	public static TrustManager createTrustManagerForKeyStore(final KeyStore trustedKeyStore) throws Exception {
-		TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-		trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+		final TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
 		trustManagerFactory.init(trustedKeyStore);
 
 		for (final TrustManager trustManager : trustManagerFactory.getTrustManagers()) {

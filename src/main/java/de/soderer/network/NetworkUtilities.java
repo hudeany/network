@@ -1,5 +1,6 @@
 package de.soderer.network;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -122,6 +123,13 @@ public class NetworkUtilities {
 		if (proxy == null || proxy.equals(Proxy.NO_PROXY)) {
 			return testConnection(hostname, port, timeoutMillis);
 		} else {
+			if (hostname.indexOf('\r') >= 0 || hostname.indexOf('\n') >= 0) {
+				// hostname is embedded verbatim into the raw CONNECT request line and Host header
+				// below; without this check a CR/LF inside it would allow injecting additional
+				// header lines or an entirely separate request into the proxy connection.
+				throw new IllegalArgumentException("Invalid hostname for proxy CONNECT request: must not contain CR or LF");
+			}
+
 			final String proxyHost = ((InetSocketAddress) proxy.address()).getHostName();
 			final int proxyPort = ((InetSocketAddress) proxy.address()).getPort();
 			final int effectiveTimeoutMillis = Math.max(timeoutMillis, 0);
@@ -138,26 +146,49 @@ public class NetworkUtilities {
 				socketOutputStream.write(proxyConnect.getBytes(StandardCharsets.US_ASCII));
 				socketOutputStream.flush();
 
-				final byte[] tmpBuffer = new byte[512];
 				try (final InputStream socketInputStream = socket.getInputStream()) {
-					final int proxyResponseLength = socketInputStream.read(tmpBuffer, 0, tmpBuffer.length);
-					if (proxyResponseLength == -1) {
-						throw new SocketException("Invalid response from proxy: connection was closed before any data was received");
+					final String statusLine = readProxyConnectStatusLine(socketInputStream);
+
+					if (socketInputStream.available() > 0) {
+						// Flush any leftover message (remaining headers) in buffer
+						socketInputStream.skip(socketInputStream.available());
 					}
 
-					final String proxyResponse = new String(tmpBuffer, 0, proxyResponseLength, StandardCharsets.UTF_8);
-					if (proxyResponse.contains("200")) {
-						if (socketInputStream.available() > 0) {
-							// Flush any leftover message in buffer
-							socketInputStream.skip(socketInputStream.available());
-						}
-						return true;
-					} else {
-						return false;
-					}
+					// Status line, e.g. "HTTP/1.1 200 Connection established". A strict check on the
+					// status code avoids false positives from a loose substring match (e.g. an error
+					// message or a port number that happens to contain "200" elsewhere in the response).
+					final String[] statusLineParts = statusLine.split(" ", 3);
+					return statusLineParts.length >= 2
+							&& statusLineParts[0].startsWith("HTTP/")
+							&& "200".equals(statusLineParts[1]);
 				}
 			}
 		}
+	}
+
+	/**
+	 * Reads bytes from a proxy CONNECT response up to and including the first "\r\n", i.e. just the
+	 * status line, without assuming it arrives within a single read() call (it may be split across
+	 * multiple TCP segments on a slow or loaded connection). Bounded to a small maximum length, since
+	 * a status line has no legitimate reason to be long.
+	 */
+	private static String readProxyConnectStatusLine(final InputStream inputStream) throws IOException {
+		final int maxStatusLineLength = 1024;
+		final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+		int previous = -1;
+		int current;
+		while ((current = inputStream.read()) != -1) {
+			buffer.write(current);
+			if (previous == '\r' && current == '\n') {
+				final byte[] bytes = buffer.toByteArray();
+				return new String(bytes, 0, bytes.length - 2, StandardCharsets.UTF_8);
+			}
+			if (buffer.size() > maxStatusLineLength) {
+				throw new IOException("Proxy CONNECT response status line exceeds maximum allowed length of " + maxStatusLineLength + " bytes");
+			}
+			previous = current;
+		}
+		throw new SocketException("Invalid response from proxy: connection was closed before a complete status line was received");
 	}
 
 	public static boolean ping(final String ipOrHostname, final Proxy proxy) {
