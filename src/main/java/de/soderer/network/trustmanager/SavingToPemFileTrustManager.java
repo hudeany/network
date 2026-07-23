@@ -75,7 +75,10 @@ public class SavingToPemFileTrustManager implements X509TrustManager {
 	}
 
 	@Override
-	public void checkServerTrusted(final X509Certificate[] chain, final String authType) throws CertificateException {
+	// synchronized so the "no fingerprints recorded yet -> accept and write" TOFU sequence is atomic;
+	// without this, two threads sharing this instance could both see an empty list at the same time
+	// and both independently accept (and overwrite the file with) different, unverified certificates.
+	public synchronized void checkServerTrusted(final X509Certificate[] chain, final String authType) throws CertificateException {
 		try {
 			if (chain != null && chain.length > 0) {
 				if (!previouslyRecordedFingerprints.isEmpty()) {
@@ -97,6 +100,10 @@ public class SavingToPemFileTrustManager implements X509TrustManager {
 						writer.write("-----BEGIN CERTIFICATE-----\n");
 						writer.write(Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(cert.getEncoded()));
 						writer.write("\n-----END CERTIFICATE-----\n");
+						// Without this, previouslyRecordedFingerprints stays empty for the lifetime of this
+						// instance, so every subsequent connection would hit the "isEmpty()" branch again and
+						// blindly accept (and overwrite) whatever certificate is presented next, defeating the
+						// pinning this class exists for.
 						previouslyRecordedFingerprints.add(fingerprint(cert.getEncoded()));
 					}
 				}

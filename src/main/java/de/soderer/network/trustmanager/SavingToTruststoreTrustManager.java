@@ -84,7 +84,10 @@ public class SavingToTruststoreTrustManager implements X509TrustManager {
 	}
 
 	@Override
-	public void checkServerTrusted(final X509Certificate[] chain, final String authType) throws CertificateException {
+	// synchronized so the "no fingerprints recorded yet -> accept and write" TOFU sequence is atomic;
+	// without this, two threads sharing this instance could both see an empty set at the same time
+	// and both independently accept (and persist) different, unverified certificates.
+	public synchronized void checkServerTrusted(final X509Certificate[] chain, final String authType) throws CertificateException {
 		try {
 			if (chain != null && chain.length > 0) {
 				if (!previouslyRecordedFingerprints.isEmpty()) {

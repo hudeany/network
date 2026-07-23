@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -584,21 +583,11 @@ public class HttpUtilities {
 	}
 
 	public static String urlEncode(final String data, final Charset charset) {
-		try {
-			return URLEncoder.encode(data, charset.name());
-		} catch (final UnsupportedEncodingException e) {
-			// Cannot occur, because of the usage of Charset class
-			throw new RuntimeException(e);
-		}
+		return URLEncoder.encode(data, charset);
 	}
 
 	public static String urlDecode(final String data, final Charset charset) {
-		try {
-			return URLDecoder.decode(data, charset.name());
-		} catch (final UnsupportedEncodingException e) {
-			// Cannot occur, because of the usage of Charset class
-			throw new RuntimeException(e);
-		}
+		return URLDecoder.decode(data, charset);
 	}
 
 	public static void pingUrlWithoutSslCheckNoWaitForAnswer(final String pingUrl, final Proxy proxy)
