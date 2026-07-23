@@ -17,6 +17,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import de.soderer.network.utilities.CaseInsensitiveLinkedMap;
+
 public class HttpRequest {
 	/** Default maximum size of the header block, guards against resource-exhaustion from malformed/malicious requests */
 	public static final int DEFAULT_MAX_HEADER_SIZE = 64 * 1024; // 64 KB
@@ -31,7 +33,7 @@ public class HttpRequest {
 	private int connectTimeoutMillis = -1;
 	private int readTimeoutMillis = -1;
 
-	private final Map<String, String> headers = new LinkedHashMap<>();
+	private final Map<String, String> headers = new CaseInsensitiveLinkedMap<>();
 	private final Map<String, List<Object>> urlParameters = new HashMap<>();
 	private final Map<String, List<Object>> postParameters= new HashMap<>();
 	private String requestBody = null;
@@ -484,7 +486,13 @@ public class HttpRequest {
 			final String headerName = line.substring(0, colonIndex).trim();
 			final String headerValue = line.substring(colonIndex + 1).trim();
 			final String existingValue = request.getHeaders().get(headerName);
-			request.addHeader(headerName, existingValue == null ? headerValue : existingValue + ", " + headerValue);
+			if (existingValue == null) {
+				request.addHeader(headerName, headerValue);
+			} else if ("Cookie".equalsIgnoreCase(headerName)) {
+				request.addHeader(headerName, existingValue + "; " + headerValue);
+			} else {
+				request.addHeader(headerName, existingValue + ", " + headerValue);
+			}
 		}
 
 		// Cookies, e.g. "Cookie: sessionId=abc123; theme=dark"
