@@ -393,8 +393,14 @@ public class HttpUtilities {
 				}
 				final String redirectUrl = urlConnection.getHeaderField("Location");
 				if (NetworkUtilities.isNotBlank(redirectUrl)) {
+					// Resolve the Location value against the requested URL, since servers are allowed to
+					// send a relative redirect target (path only, without scheme/host).
 					final URI redirectUri = URI.create(requestedUrl).resolve(redirectUrl);
 
+					// Credentials (Authorization header, Cookies) must only be forwarded to a redirect
+					// target on the SAME origin (scheme + host + port). Otherwise the server issuing the
+					// redirect (or an open-redirect flaw on its side) could exfiltrate them to an arbitrary
+					// third-party host. Non-credential headers are still carried over regardless of origin.
 					final boolean sameOrigin = isSameOrigin(URI.create(requestedUrl), redirectUri);
 
 					final HttpRequest redirectedHttpRequest = new HttpRequest(httpRequest.getRequestMethod(), redirectUri.toString());
