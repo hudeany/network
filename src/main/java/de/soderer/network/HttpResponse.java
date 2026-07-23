@@ -1,5 +1,6 @@
 package de.soderer.network;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Map.Entry;
 
@@ -18,8 +19,8 @@ public class HttpResponse {
 		this.httpCodeMessage = httpCodeMessage;
 		this.content = content;
 		this.contentType = contentType;
-		this.headers = headers;
-		this.cookieData = cookieData;
+		this.headers = headers == null ? null : Collections.unmodifiableMap(headers);
+		this.cookieData = cookieData == null ? null : Collections.unmodifiableMap(cookieData);
 	}
 
 	public HttpResponse(final int httpCode, final String httpCodeMessage, final String content, final String contentType, final Map<String, String> headers, final Map<String, String> cookieData) {
@@ -28,8 +29,8 @@ public class HttpResponse {
 		this.httpCodeMessage = httpCodeMessage;
 		this.content = content;
 		this.contentType = contentType;
-		this.headers = headers;
-		this.cookieData = cookieData;
+		this.headers = headers == null ? null : Collections.unmodifiableMap(headers);
+		this.cookieData = cookieData == null ? null : Collections.unmodifiableMap(cookieData);
 	}
 
 	public String getIpAddress() {
