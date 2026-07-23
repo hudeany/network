@@ -393,14 +393,24 @@ public class HttpUtilities {
 				}
 				final String redirectUrl = urlConnection.getHeaderField("Location");
 				if (NetworkUtilities.isNotBlank(redirectUrl)) {
-					// Carry over headers, cookies, timeouts and encoding of the original request instead of
-					// silently dropping them (e.g. an Authorization header must survive the redirect)
-					final HttpRequest redirectedHttpRequest = new HttpRequest(httpRequest.getRequestMethod(), redirectUrl);
-					for (final Entry<String, String> headerEntry : httpRequest.getHeaders().entrySet()) {
-						redirectedHttpRequest.addHeader(headerEntry.getKey(), headerEntry.getValue());
+					final URI redirectUri = URI.create(requestedUrl).resolve(redirectUrl);
+
+					final boolean sameOrigin = isSameOrigin(URI.create(requestedUrl), redirectUri);
+
+					final HttpRequest redirectedHttpRequest = new HttpRequest(httpRequest.getRequestMethod(), redirectUri.toString());
+					if (httpRequest.getHeaders() != null) {
+						for (final Entry<String, String> headerEntry : httpRequest.getHeaders().entrySet()) {
+							if (!sameOrigin && "Authorization".equalsIgnoreCase(headerEntry.getKey())) {
+								// Drop credentials when redirected to a different origin
+								continue;
+							}
+							redirectedHttpRequest.addHeader(headerEntry.getKey(), headerEntry.getValue());
+						}
 					}
-					for (final Entry<String, String> cookieEntry : httpRequest.getCookieData().entrySet()) {
-						redirectedHttpRequest.addCookieData(cookieEntry.getKey(), cookieEntry.getValue());
+					if (sameOrigin && httpRequest.getCookieData() != null) {
+						for (final Entry<String, String> cookieEntry : httpRequest.getCookieData().entrySet()) {
+							redirectedHttpRequest.addCookieData(cookieEntry.getKey(), cookieEntry.getValue());
+						}
 					}
 					redirectedHttpRequest.setEncoding(httpRequest.getEncoding());
 					redirectedHttpRequest.setConnectionTimeoutMillis(httpRequest.getConnectTimeoutMillis());
@@ -843,6 +853,37 @@ public class HttpUtilities {
 		return value.replace("\r", "").replace("\n", "")
 				.replace("\\", "\\\\")
 				.replace("\"", "\\\"");
+	}
+
+	/**
+	 * Compares two URIs for "same origin" (scheme + host + effective port), the way a browser would
+	 * decide whether credentials (Authorization header, Cookies) may be forwarded to a redirect target.
+	 * A missing port is resolved to the scheme's default port (443 for https, 80 otherwise) so that
+	 * e.g. "https://example.com" and "https://example.com:443" are correctly treated as the same origin.
+	 */
+	private static boolean isSameOrigin(final URI uriA, final URI uriB) {
+		if (uriA.getHost() == null || uriB.getHost() == null) {
+			return false;
+		}
+		if (!uriA.getHost().equalsIgnoreCase(uriB.getHost())) {
+			return false;
+		}
+		final String schemeA = uriA.getScheme() == null ? "" : uriA.getScheme().toLowerCase(Locale.ROOT);
+		final String schemeB = uriB.getScheme() == null ? "" : uriB.getScheme().toLowerCase(Locale.ROOT);
+		if (!schemeA.equals(schemeB)) {
+			return false;
+		}
+		return getEffectivePort(uriA, schemeA) == getEffectivePort(uriB, schemeB);
+	}
+
+	private static int getEffectivePort(final URI uri, final String scheme) {
+		if (uri.getPort() != -1) {
+			return uri.getPort();
+		} else if ("https".equals(scheme)) {
+			return 443;
+		} else {
+			return 80;
+		}
 	}
 
 	private static String encodeForCookie(final String value) {
