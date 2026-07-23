@@ -147,19 +147,43 @@ public class TrustManagerUtilities {
 			throw new Exception("File '" + trustStoreFile.getAbsolutePath() + "' already exists");
 		}
 
-		String hostnameOrIp;
-		int port;
-		final String[] hostParts = hostnameOrIpAndPort.split(":");
-		if (hostParts.length == 2) {
-			hostnameOrIp = hostParts[0];
-			try {
-				port = Integer.parseInt(hostParts[1]);
-			} catch (@SuppressWarnings("unused") final Exception e) {
-				throw new Exception("Invalid port: " + hostParts[1]);
+		final String hostnameOrIp;
+		final int port;
+		if (hostnameOrIpAndPort.startsWith("[")) {
+			// Bracketed IPv6 address, e.g. "[2001:db8::1]:8443" or "[::1]" - the brackets are what
+			// RFC 3986 uses to unambiguously combine an IPv6 address (which itself contains colons)
+			// with a trailing ":port", so this must be checked before the plain colon-split below.
+			final int closingBracketIndex = hostnameOrIpAndPort.indexOf(']');
+			if (closingBracketIndex < 0) {
+				throw new Exception("Invalid host: missing closing ']' for bracketed IPv6 address: " + hostnameOrIpAndPort);
+			}
+			hostnameOrIp = hostnameOrIpAndPort.substring(1, closingBracketIndex);
+			final String remainder = hostnameOrIpAndPort.substring(closingBracketIndex + 1);
+			if (remainder.startsWith(":")) {
+				try {
+					port = Integer.parseInt(remainder.substring(1));
+				} catch (@SuppressWarnings("unused") final Exception e) {
+					throw new Exception("Invalid port: " + remainder.substring(1));
+				}
+			} else {
+				port = defaultPort;
 			}
 		} else {
-			hostnameOrIp = hostnameOrIpAndPort;
-			port = defaultPort;
+			final String[] hostParts = hostnameOrIpAndPort.split(":");
+			if (hostParts.length == 2) {
+				hostnameOrIp = hostParts[0];
+				try {
+					port = Integer.parseInt(hostParts[1]);
+				} catch (@SuppressWarnings("unused") final Exception e) {
+					throw new Exception("Invalid port: " + hostParts[1]);
+				}
+			} else {
+				// Either a bare hostname, or an unbracketed IPv6 address (which may contain many
+				// colons of its own, making a ":port" suffix ambiguous without brackets - per
+				// RFC 3986 that requires the bracket notation above). Treat it as the bare host.
+				hostnameOrIp = hostnameOrIpAndPort;
+				port = defaultPort;
+			}
 		}
 
 		final X509Certificate certificate = HttpUtilities.getServerTlsCertificate(hostnameOrIp, port, proxy);

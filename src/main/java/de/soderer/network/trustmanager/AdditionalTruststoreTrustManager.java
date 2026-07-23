@@ -79,13 +79,22 @@ public class AdditionalTruststoreTrustManager implements X509TrustManager {
 
 	@Override
 	public X509Certificate[] getAcceptedIssuers() {
+		// getAcceptedIssuers() is permitted to return null per the X509TrustManager contract,
+		// so this must not be assumed to always be a (possibly empty) array.
 		final X509Certificate[] systemDefaultIssuers = systemDefaultTrustManager.getAcceptedIssuers();
 		final X509Certificate[] additionalIssuers = additionalTrustManager.getAcceptedIssuers();
 
-		final X509Certificate[] allIssuers = new X509Certificate[systemDefaultIssuers.length + additionalIssuers.length];
+		final int systemDefaultCount = systemDefaultIssuers == null ? 0 : systemDefaultIssuers.length;
+		final int additionalCount = additionalIssuers == null ? 0 : additionalIssuers.length;
 
-		System.arraycopy(systemDefaultIssuers, 0, allIssuers, 0, systemDefaultIssuers.length);
-		System.arraycopy(additionalIssuers, 0, allIssuers, systemDefaultIssuers.length, additionalIssuers.length);
+		final X509Certificate[] allIssuers = new X509Certificate[systemDefaultCount + additionalCount];
+
+		if (systemDefaultCount > 0) {
+			System.arraycopy(systemDefaultIssuers, 0, allIssuers, 0, systemDefaultCount);
+		}
+		if (additionalCount > 0) {
+			System.arraycopy(additionalIssuers, 0, allIssuers, systemDefaultCount, additionalCount);
+		}
 
 		return allIssuers;
 	}

@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -193,7 +194,7 @@ public class NetworkUtilities {
 
 	public static boolean ping(final String ipOrHostname, final Proxy proxy) {
 		try {
-			if (ipOrHostname.toLowerCase().trim().startsWith("http://")) {
+			if (ipOrHostname.toLowerCase(Locale.ROOT).trim().startsWith("http://")) {
 				final URL url = URI.create("http://" + getHostnameFromRequestString(ipOrHostname)).toURL();
 				HttpURLConnection httpURLConnection;
 				if (proxy == null) {
@@ -210,7 +211,7 @@ public class NetworkUtilities {
 				} finally {
 					httpURLConnection.disconnect();
 				}
-			} else if (ipOrHostname.toLowerCase().trim().startsWith("https://")) {
+			} else if (ipOrHostname.toLowerCase(Locale.ROOT).trim().startsWith("https://")) {
 				final URL url = URI.create("https://" + getHostnameFromRequestString(ipOrHostname)).toURL();
 				HttpURLConnection httpURLConnection;
 				if (proxy == null) {
@@ -293,7 +294,7 @@ public class NetworkUtilities {
 		if (requestString == null || !requestString.contains("/")) {
 			return requestString;
 		} else {
-			if (requestString.toLowerCase().startsWith("http")) {
+			if (requestString.toLowerCase(Locale.ROOT).startsWith("http")) {
 				requestString = requestString.substring(requestString.indexOf("//") + 2);
 
 				if (!requestString.contains("/")) {
@@ -347,7 +348,7 @@ public class NetworkUtilities {
 
 	public static String getProtocolFromRequestString(final String requestString) {
 		if (requestString.contains("://")) {
-			return requestString.substring(0, requestString.indexOf("://")).toLowerCase();
+			return requestString.substring(0, requestString.indexOf("://")).toLowerCase(Locale.ROOT);
 		} else {
 			return null;
 		}
@@ -440,7 +441,7 @@ public class NetworkUtilities {
 	}
 
 	public static InputStream openHttpsDataInputStreamWithPemCertificate(final String urlString, final InputStream pemCertificateInputStream) throws Exception {
-		if (urlString == null || !urlString.toLowerCase().startsWith("https://")) {
+		if (urlString == null || !urlString.toLowerCase(Locale.ROOT).startsWith("https://")) {
 			throw new Exception("Invalid urlString for https connection: " + urlString);
 		}
 
@@ -491,7 +492,7 @@ public class NetworkUtilities {
 		} else if (suffix == null) {
 			// suffix is null but data is not
 			return false;
-		} else if (data.toLowerCase().endsWith(suffix.toLowerCase())) {
+		} else if (data.toLowerCase(Locale.ROOT).endsWith(suffix.toLowerCase(Locale.ROOT))) {
 			// both are set, so ignore the case for standard endsWith-method
 			return true;
 		} else {
@@ -525,6 +526,6 @@ public class NetworkUtilities {
 			}
 		}
 
-		return Pattern.matches(hostnamePatternEscaped.toString().toLowerCase(), hostname.toLowerCase());
+		return Pattern.matches(hostnamePatternEscaped.toString().toLowerCase(Locale.ROOT), hostname.toLowerCase(Locale.ROOT));
 	}
 }

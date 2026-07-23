@@ -1,5 +1,7 @@
 package de.soderer.network;
 
+import java.util.Locale;
+
 public enum HttpContentType {
 	/** application/x-www-form-urlencoded */
 	HtmlForm("application/x-www-form-urlencoded"),
@@ -52,7 +54,7 @@ public enum HttpContentType {
 	public static HttpContentType getHttpContentTypeByName(final String httpContentTypeString) throws Exception {
 		for (final HttpContentType httpContentType : HttpContentType.values()) {
 			if (httpContentType.stringRepresentation.equalsIgnoreCase(httpContentTypeString)
-					|| httpContentTypeString.toLowerCase().startsWith(httpContentType.stringRepresentation + ";")) {
+					|| httpContentTypeString.toLowerCase(Locale.ROOT).startsWith(httpContentType.stringRepresentation + ";")) {
 				return httpContentType;
 			}
 		}

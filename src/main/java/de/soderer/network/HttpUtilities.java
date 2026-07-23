@@ -159,7 +159,7 @@ public class HttpUtilities {
 								.encodeToString(proxyCredentials.getBytes(StandardCharsets.UTF_8)));
 			}
 
-			if (requestedUrl.toLowerCase().startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN)) {
+			if (requestedUrl.toLowerCase(Locale.ROOT).startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN)) {
 				if (trustManager != null) {
 					// Use special trustmanager
 					final SSLContext sslContext = SSLContext.getInstance(TLS_VERSION);
@@ -390,12 +390,17 @@ public class HttpUtilities {
 					|| httpResponseCode == HTTP_TEMPORARY_REDIRECT
 					|| httpResponseCode == HTTP_PERMANENT_REDIRECT;
 			if (isRedirectResponseCode && httpRequest.getMaxRedirects() != 0) {
+				// Optionally follow redirections (HttpCodes 301, 302, 303, 307 and 308)
+				// NOTE: this check must happen before the "httpResponseCode < 400" success branch below,
+				// since 301/302/303 are all < 400 and would otherwise always be swallowed there first.
 				final int maxRedirects = httpRequest.getMaxRedirects();
 				if (maxRedirects > 0 && redirectCount >= maxRedirects) {
 					throw new Exception("Too many redirects (>" + maxRedirects + ") while requesting URL '" + httpRequest.getUrlWithProtocol() + "'");
 				}
 				final String redirectUrl = urlConnection.getHeaderField("Location");
 				if (NetworkUtilities.isNotBlank(redirectUrl)) {
+					// Resolve the Location value against the requested URL, since servers are allowed to
+					// send a relative redirect target (path only, without scheme/host).
 					final URI redirectUri = URI.create(requestedUrl).resolve(redirectUrl);
 
 					// Credentials (Authorization header, Cookies) must only be forwarded to a redirect
@@ -996,9 +1001,9 @@ public class HttpUtilities {
 		if (proxyString == null || proxyString.trim().length() == 0 || "DIRECT".equalsIgnoreCase(proxyString)) {
 			return Proxy.NO_PROXY;
 		} else {
-			if (proxyString.toLowerCase().startsWith("http://")) {
+			if (proxyString.toLowerCase(Locale.ROOT).startsWith("http://")) {
 				proxyString = proxyString.substring(7);
-			} else if (proxyString.toLowerCase().startsWith("https://")) {
+			} else if (proxyString.toLowerCase(Locale.ROOT).startsWith("https://")) {
 				proxyString = proxyString.substring(8);
 			}
 

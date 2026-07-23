@@ -15,6 +15,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import de.soderer.network.utilities.CaseInsensitiveLinkedMap;
@@ -137,7 +138,7 @@ public class HttpRequest {
 	public String getUrlWithProtocol() throws Exception {
 		if (NetworkUtilities.isBlank(url)) {
 			throw new Exception("Invalid empty URL for http request");
-		} else if (url.toLowerCase().startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN) || url.toLowerCase().startsWith(HttpConstants.HTTP_PROTOCOL_SIGN)) {
+		} else if (url.toLowerCase(Locale.ROOT).startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN) || url.toLowerCase(Locale.ROOT).startsWith(HttpConstants.HTTP_PROTOCOL_SIGN)) {
 			return url;
 		} else {
 			return HttpConstants.SECURE_HTTP_PROTOCOL_SIGN + url;
@@ -449,7 +450,7 @@ public class HttpRequest {
 
 		final HttpMethod method;
 		try {
-			method = HttpMethod.valueOf(requestLineParts[0].toUpperCase());
+			method = HttpMethod.valueOf(requestLineParts[0].toUpperCase(Locale.ROOT));
 		} catch (@SuppressWarnings("unused") final IllegalArgumentException e) {
 			throw new IOException("Unsupported HTTP method: '" + requestLineParts[0] + "'");
 		}
@@ -489,6 +490,9 @@ public class HttpRequest {
 			if (existingValue == null) {
 				request.addHeader(headerName, headerValue);
 			} else if ("Cookie".equalsIgnoreCase(headerName)) {
+				// RFC 6265 4.2.1: the Cookie header uses "; " as its pair separator, not RFC 7230's
+				// generic ", " used below for other multi-valued headers; joining duplicate Cookie
+				// header lines with ", " would corrupt the name=value pairs on later parsing.
 				request.addHeader(headerName, existingValue + "; " + headerValue);
 			} else {
 				request.addHeader(headerName, existingValue + ", " + headerValue);
@@ -515,7 +519,7 @@ public class HttpRequest {
 
 		final byte[] body;
 		final String transferEncoding = request.getHeaders().get("Transfer-Encoding");
-		final boolean isChunked = transferEncoding != null && transferEncoding.toLowerCase().contains("chunked");
+		final boolean isChunked = transferEncoding != null && transferEncoding.toLowerCase(Locale.ROOT).contains("chunked");
 		if (isChunked && request.getHeaders().get("Content-Length") != null) {
 			// Presence of both headers is a classic HTTP request smuggling vector (CL.TE / TE.CL):
 			// different intermediaries may pick different headers to determine the body length.
@@ -548,7 +552,7 @@ public class HttpRequest {
 
 		try {
 			if (body.length > 0) {
-				if (contentTypeHeader != null && contentTypeHeader.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
+				if (contentTypeHeader != null && contentTypeHeader.toLowerCase(Locale.ROOT).startsWith("application/x-www-form-urlencoded")) {
 					final Charset bodyCharset = determineCharset(contentTypeHeader, request.getEncoding());
 					final String bodyString = new String(body, bodyCharset);
 					for (final Map.Entry<String, List<Object>> entry : parseUrlEncodedParameters(bodyString).entrySet()) {
@@ -556,7 +560,7 @@ public class HttpRequest {
 							request.addPostParameter(entry.getKey(), value);
 						}
 					}
-				} else if (contentTypeHeader != null && contentTypeHeader.toLowerCase().startsWith("multipart/form-data")) {
+				} else if (contentTypeHeader != null && contentTypeHeader.toLowerCase(Locale.ROOT).startsWith("multipart/form-data")) {
 					final String boundary = extractMultipartBoundary(contentTypeHeader);
 					if (boundary == null) {
 						throw new IOException("Missing boundary in multipart Content-Type header: '" + contentTypeHeader + "'");
@@ -729,7 +733,7 @@ public class HttpRequest {
 		if (contentTypeHeader == null) {
 			return fallback;
 		}
-		final int charsetIndex = contentTypeHeader.toLowerCase().indexOf("charset=");
+		final int charsetIndex = contentTypeHeader.toLowerCase(Locale.ROOT).indexOf("charset=");
 		if (charsetIndex < 0) {
 			return fallback;
 		}
@@ -749,7 +753,7 @@ public class HttpRequest {
 	private static String extractMultipartBoundary(final String contentTypeHeader) {
 		for (final String part : contentTypeHeader.split(";")) {
 			final String trimmedPart = part.trim();
-			if (trimmedPart.toLowerCase().startsWith("boundary=")) {
+			if (trimmedPart.toLowerCase(Locale.ROOT).startsWith("boundary=")) {
 				return stripQuotes(trimmedPart.substring("boundary=".length()).trim());
 			}
 		}
