@@ -53,6 +53,10 @@ public class HttpUtilities {
 	private static boolean debugLog = false;
 	private static String TLS_VERSION = "TLS"; // Also possible definitions "TLSv1.2", "TLSv1.3"
 
+	// HttpURLConnection does not define constants for these two redirect status codes
+	private static final int HTTP_TEMPORARY_REDIRECT = 307;
+	private static final int HTTP_PERMANENT_REDIRECT = 308;
+
 	private static HostnameVerifier TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER = (hostname, session) -> true;
 
 	/**
@@ -347,8 +351,8 @@ public class HttpUtilities {
 			Charset encoding = StandardCharsets.UTF_8;
 			if (headers.containsKey(HttpConstants.HTTPHEADERNAME_CONTENTTYPE)) {
 				String contentType = headers.get(HttpConstants.HTTPHEADERNAME_CONTENTTYPE);
-				if (contentType != null && contentType.toLowerCase().contains("charset=")) {
-					contentType = contentType.toLowerCase();
+				if (contentType != null && contentType.toLowerCase(Locale.ROOT).contains("charset=")) {
+					contentType = contentType.toLowerCase(Locale.ROOT);
 					encoding = Charset.forName(contentType.substring(contentType.indexOf("charset=") + 8).trim());
 				}
 			}
@@ -382,19 +386,16 @@ public class HttpUtilities {
 			final int httpResponseCode = urlConnection.getResponseCode();
 			final boolean isRedirectResponseCode = httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP
 					|| httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM
-					|| httpResponseCode == HttpURLConnection.HTTP_SEE_OTHER;
+					|| httpResponseCode == HttpURLConnection.HTTP_SEE_OTHER
+					|| httpResponseCode == HTTP_TEMPORARY_REDIRECT
+					|| httpResponseCode == HTTP_PERMANENT_REDIRECT;
 			if (isRedirectResponseCode && httpRequest.getMaxRedirects() != 0) {
-				// Optionally follow redirections (HttpCodes 301, 302 and 303)
-				// NOTE: this check must happen before the "httpResponseCode < 400" success branch below,
-				// since 301/302/303 are all < 400 and would otherwise always be swallowed there first.
 				final int maxRedirects = httpRequest.getMaxRedirects();
 				if (maxRedirects > 0 && redirectCount >= maxRedirects) {
 					throw new Exception("Too many redirects (>" + maxRedirects + ") while requesting URL '" + httpRequest.getUrlWithProtocol() + "'");
 				}
 				final String redirectUrl = urlConnection.getHeaderField("Location");
 				if (NetworkUtilities.isNotBlank(redirectUrl)) {
-					// Resolve the Location value against the requested URL, since servers are allowed to
-					// send a relative redirect target (path only, without scheme/host).
 					final URI redirectUri = URI.create(requestedUrl).resolve(redirectUrl);
 
 					// Credentials (Authorization header, Cookies) must only be forwarded to a redirect
@@ -403,10 +404,57 @@ public class HttpUtilities {
 					// third-party host. Non-credential headers are still carried over regardless of origin.
 					final boolean sameOrigin = isSameOrigin(URI.create(requestedUrl), redirectUri);
 
-					final HttpRequest redirectedHttpRequest = new HttpRequest(httpRequest.getRequestMethod(), redirectUri.toString());
+					// Determine the HTTP method to use for the redirected request:
+					// - 303 (See Other) always switches to GET and drops the body (RFC 7231 6.4.4).
+					// - 301/302 for an original POST also downgrade to GET/no body; this is not strictly
+					//   required by RFC 7231 but is the behaviour established by browsers and most HTTP
+					//   client libraries, so servers generally rely on it.
+					// - 307/308 (and 301/302 for methods other than POST, e.g. GET/HEAD) always preserve
+					//   the original method and body.
+					final HttpMethod originalMethod = httpRequest.getRequestMethod();
+					final HttpMethod redirectedMethod;
+					final boolean dropBody;
+					if (httpResponseCode == HttpURLConnection.HTTP_SEE_OTHER) {
+						redirectedMethod = HttpMethod.GET;
+						dropBody = true;
+					} else if ((httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM
+							|| httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP)
+							&& originalMethod == HttpMethod.POST) {
+						redirectedMethod = HttpMethod.GET;
+						dropBody = true;
+					} else {
+						redirectedMethod = originalMethod;
+						dropBody = false;
+					}
+
+					final HttpRequest redirectedHttpRequest = new HttpRequest(redirectedMethod, redirectUri.toString());
+
+					if (!dropBody) {
+						if (httpRequest.getRequestBodyContentStream() != null) {
+							// An InputStream-based request body has already been (partially) consumed while
+							// sending the original request, so it cannot be safely re-read for the redirected
+							// request. Silently sending the redirect without it would just hide the problem.
+							throw new Exception("Cannot follow " + httpResponseCode + " redirect for URL '"
+									+ httpRequest.getUrlWithProtocol() + "' to '" + redirectUri
+									+ "': the request body was supplied as an InputStream, which cannot be re-sent for a redirected request.");
+						}
+						if (httpRequest.getRequestBody() != null) {
+							redirectedHttpRequest.setRequestBody(httpRequest.getRequestBody());
+						}
+						for (final Entry<String, List<Object>> postParameterEntry : httpRequest.getPostParameters().entrySet()) {
+							for (final Object value : postParameterEntry.getValue()) {
+								redirectedHttpRequest.addPostParameter(postParameterEntry.getKey(), value);
+							}
+						}
+						for (final UploadFileAttachment uploadFileAttachment : httpRequest.getUploadFileAttachments()) {
+							redirectedHttpRequest.addUploadFileData(uploadFileAttachment.getHtmlInputName(),
+									uploadFileAttachment.getFileName(), uploadFileAttachment.getData());
+						}
+					}
+
 					if (httpRequest.getHeaders() != null) {
 						for (final Entry<String, String> headerEntry : httpRequest.getHeaders().entrySet()) {
-							if (!sameOrigin && "Authorization".equalsIgnoreCase(headerEntry.getKey())) {
+							if (!sameOrigin && HttpConstants.HTTPHEADERNAME_AUTHORIZATION.equalsIgnoreCase(headerEntry.getKey())) {
 								// Drop credentials when redirected to a different origin
 								continue;
 							}
@@ -614,7 +662,7 @@ public class HttpUtilities {
 			valueList.add(HttpContentType.HtmlForm.getStringRepresentation());
 		} else {
 			valueList.add(
-					HttpContentType.HtmlForm.getStringRepresentation() + "; charset=" + encoding.name().toLowerCase());
+					HttpContentType.HtmlForm.getStringRepresentation() + "; charset=" + encoding.name().toLowerCase(Locale.ROOT));
 		}
 		returnMap.put(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, valueList);
 		return returnMap;
