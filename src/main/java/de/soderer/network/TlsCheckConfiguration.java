@@ -13,13 +13,36 @@ import de.soderer.network.trustmanager.TruststoreTrustManager;
 
 public class TlsCheckConfiguration {
 	public enum TlsCheckConfigurationType {
-		SystemTrustStore,
-		TrustStoreFile,
-		AdditionalTrustStoreFile,
-		RecordingToTrustStoreFile,
-		SingleCertificate,
-		RecordingSingleCertificate,
-		NoCheck;
+		SystemTrustStore(false, false),
+		TrustStoreFile(true, true),
+		AdditionalTrustStoreFile(true, true),
+		RecordingToTrustStoreFile(true, true),
+		SingleCertificate(true, false),
+		RecordingSingleCertificate(true, false),
+		NoCheck(false, false);
+
+		private final boolean filePathSupported;
+		private final boolean passwordSupported;
+
+		TlsCheckConfigurationType(final boolean filePathSupported, final boolean passwordSupported) {
+			this.filePathSupported = filePathSupported;
+			this.passwordSupported = passwordSupported;
+		}
+
+		/**
+		 * Whether this type uses a truststore/PEM file path at all.
+		 * For all types where this is true, the file path is also mandatory (must not be null).
+		 */
+		public boolean isFilePathSupported() {
+			return filePathSupported;
+		}
+
+		/**
+		 * Whether this type uses a truststore password.
+		 */
+		public boolean isPasswordSupported() {
+			return passwordSupported;
+		}
 
 		public static TlsCheckConfigurationType getTlsCheckConfigurationByName(final String tlsCheckConfigurationTypeString) throws Exception {
 			for (final TlsCheckConfigurationType httpContentType : TlsCheckConfigurationType.values()) {
@@ -50,20 +73,12 @@ public class TlsCheckConfiguration {
 		this.trustorePassword = trustorePassword;
 		this.checkCn = checkCn;
 
-		if (type == TlsCheckConfigurationType.TrustStoreFile && trustoreOrPemFile == null) {
-			throw new IllegalArgumentException("TlsCheckConfigurationType 'TrustStoreFile' needs truststore file parameter not to be null");
-		} else if (type == TlsCheckConfigurationType.AdditionalTrustStoreFile && trustoreOrPemFile == null) {
-			throw new IllegalArgumentException("TlsCheckConfigurationType 'AdditionalTrustStoreFile' needs truststore file parameter not to be null");
-		} else if (type == TlsCheckConfigurationType.RecordingToTrustStoreFile && trustoreOrPemFile == null) {
-			throw new IllegalArgumentException("TlsCheckConfigurationType 'RecordingToFile' needs truststore file parameter not to be null");
-		} else if (type == TlsCheckConfigurationType.NoCheck && trustoreOrPemFile != null) {
-			throw new IllegalArgumentException("TlsCheckConfigurationType 'NoCheck' does not support truststore file parameter");
-		} else if (type == TlsCheckConfigurationType.SystemTrustStore && trustoreOrPemFile != null) {
-			throw new IllegalArgumentException("TlsCheckConfigurationType 'SystemTrustStore' does not support truststore file parameter");
-		} else if (type == TlsCheckConfigurationType.SingleCertificate && trustoreOrPemFile == null) {
-			throw new IllegalArgumentException("TlsCheckConfigurationType 'SingleCertificate' needs truststore file parameter not to be null");
-		} else if (type == TlsCheckConfigurationType.RecordingSingleCertificate && trustoreOrPemFile == null) {
-			throw new IllegalArgumentException("TlsCheckConfigurationType 'RecordingSingleCertificate' needs truststore file parameter not to be null");
+		if (type.isFilePathSupported() && trustoreOrPemFile == null) {
+			throw new IllegalArgumentException("TlsCheckConfigurationType '" + type.name() + "' needs truststore file parameter not to be null");
+		} else if (!type.isFilePathSupported() && trustoreOrPemFile != null) {
+			throw new IllegalArgumentException("TlsCheckConfigurationType '" + type.name() + "' does not support truststore file parameter");
+		} else if (!type.isPasswordSupported() && trustorePassword != null && trustorePassword.length > 0) {
+			throw new IllegalArgumentException("TlsCheckConfigurationType '" + type.name() + "' does not support truststore password parameter");
 		}
 	}
 
