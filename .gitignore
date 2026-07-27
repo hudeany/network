@@ -9,3 +9,4 @@ replay_pid*
 /bin/
 /build/
 /build.version
+/lib_test/

@@ -102,12 +102,12 @@ public class HttpUtilities {
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy,
 			final String proxyUsername, final String proxyPassword, final TrustManager trustManager,
 			final boolean deactivateHostnameVerification) throws Exception {
-		return executeHttpRequest(httpRequest, proxy, proxyUsername, proxyPassword, trustManager, deactivateHostnameVerification, 0);
+		return executeHttpRequest(httpRequest, proxy, proxyUsername, proxyPassword, trustManager, deactivateHostnameVerification, 0, false);
 	}
 
 	private static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy,
 			final String proxyUsername, final String proxyPassword, final TrustManager trustManager,
-			final boolean deactivateHostnameVerification, final int redirectCount) throws Exception {
+			final boolean deactivateHostnameVerification, final int redirectCount, final boolean credentialsDroppedSoFar) throws Exception {
 		try {
 			String requestedUrl = httpRequest.getUrlWithProtocol();
 
@@ -408,6 +408,11 @@ public class HttpUtilities {
 					// third-party host. Non-credential headers are still carried over regardless of origin.
 					final boolean sameOrigin = isSameOrigin(URI.create(requestedUrl), redirectUri);
 
+					final boolean hadAuthorizationHeader = httpRequest.getHeaders() != null && httpRequest.getHeaders().keySet().stream()
+							.anyMatch(headerName -> HttpConstants.HTTPHEADERNAME_AUTHORIZATION.equalsIgnoreCase(headerName));
+					final boolean hadCookies = httpRequest.getCookieData() != null && httpRequest.getCookieData().size() > 0;
+					final boolean credentialsDroppedThisHop = !sameOrigin && (hadAuthorizationHeader || hadCookies);
+
 					// Determine the HTTP method to use for the redirected request:
 					// - 303 (See Other) always switches to GET and drops the body (RFC 7231 6.4.4).
 					// - 301/302 for an original POST also downgrade to GET/no body; this is not strictly
@@ -476,16 +481,18 @@ public class HttpUtilities {
 					// Propagate the same hop-limit semantics (unlimited stays unlimited, a finite limit stays the same limit)
 					redirectedHttpRequest.setMaxRedirects(maxRedirects);
 					return executeHttpRequest(redirectedHttpRequest, proxy, proxyUsername, proxyPassword, trustManager,
-							deactivateHostnameVerification, redirectCount + 1);
+							deactivateHostnameVerification, redirectCount + 1, credentialsDroppedSoFar || credentialsDroppedThisHop);
 				} else {
 					throw new Exception("Redirection url was empty");
 				}
 			} else if (httpResponseCode < HttpURLConnection.HTTP_BAD_REQUEST) {
+				final String finalUrlForResponse = redirectCount > 0 ? requestedUrl : null;
 				if (httpRequest.getDownloadStream() != null && 200 <= httpResponseCode && httpResponseCode <= 299) {
 					NetworkUtilities.copy(urlConnection.getInputStream(), httpRequest.getDownloadStream());
 					final String ipAddress = getIpAddress(urlConnection);
 					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
-							"File downloaded", urlConnection.getContentType(), headers, cookiesMap);
+							"File downloaded", urlConnection.getContentType(), headers, cookiesMap,
+							redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
 				} else if (httpRequest.getDownloadFile() != null && 200 <= httpResponseCode
 						&& httpResponseCode <= 299) {
 					try (FileOutputStream downloadFileOutputStream = new FileOutputStream(
@@ -493,7 +500,8 @@ public class HttpUtilities {
 						NetworkUtilities.copy(urlConnection.getInputStream(), downloadFileOutputStream);
 						final String ipAddress = getIpAddress(urlConnection);
 						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
-								"File downloaded", urlConnection.getContentType(), headers, cookiesMap);
+								"File downloaded", urlConnection.getContentType(), headers, cookiesMap,
+								redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
 					} catch (final Exception e) {
 						if (httpRequest.getDownloadFile().exists()) {
 							httpRequest.getDownloadFile().delete();
@@ -513,14 +521,16 @@ public class HttpUtilities {
 						}
 						final String ipAddress = getIpAddress(urlConnection);
 						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
-								httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap);
+								httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap,
+								redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
 					} catch (@SuppressWarnings("unused") final Exception e) {
 						final String ipAddress = getIpAddress(urlConnection);
 						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null,
-								null, headers, cookiesMap);
+								null, headers, cookiesMap, redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
 					}
 				}
 			} else {
+				final String finalUrlForResponse = redirectCount > 0 ? requestedUrl : null;
 				try (BufferedReader httpResponseContentReader = new BufferedReader(
 						new InputStreamReader(urlConnection.getErrorStream(), encoding))) {
 					final StringBuilder httpResponseContent = new StringBuilder();
@@ -533,11 +543,12 @@ public class HttpUtilities {
 					}
 					final String ipAddress = getIpAddress(urlConnection);
 					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
-							httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap);
+							httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap,
+							redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
 				} catch (@SuppressWarnings("unused") final Exception e) {
 					final String ipAddress = getIpAddress(urlConnection);
 					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null, null,
-							headers, cookiesMap);
+							headers, cookiesMap, redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
 				}
 			}
 		} catch (final UnknownHostException e) {
