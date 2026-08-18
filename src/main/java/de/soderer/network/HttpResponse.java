@@ -15,6 +15,7 @@ public class HttpResponse {
 	private final int redirectCount;
 	private final String finalUrl;
 	private final boolean credentialsDroppedOnRedirect;
+	private final String downloadedFilePath;
 
 	public HttpResponse(final String ipAddress, final int httpCode, final String httpCodeMessage, final String content, final String contentType, final Map<String, String> headers, final Map<String, String> cookieData) {
 		this(ipAddress, httpCode, httpCodeMessage, content, contentType, headers, cookieData, 0, null, false);
@@ -32,6 +33,19 @@ public class HttpResponse {
 	 */
 	public HttpResponse(final String ipAddress, final int httpCode, final String httpCodeMessage, final String content, final String contentType, final Map<String, String> headers, final Map<String, String> cookieData,
 			final int redirectCount, final String finalUrl, final boolean credentialsDroppedOnRedirect) {
+		this(ipAddress, httpCode, httpCodeMessage, content, contentType, headers, cookieData, redirectCount, finalUrl, credentialsDroppedOnRedirect, null);
+	}
+
+	/**
+	 * @param redirectCount number of redirect hops that were followed to arrive at this response (0 if none)
+	 * @param finalUrl the URL this response actually came from, i.e. the last URL in the redirect chain (null if no redirect was followed)
+	 * @param credentialsDroppedOnRedirect true if an Authorization header and/or cookies were withheld at least once while
+	 *        following a redirect to a different origin (see {@link HttpUtilities#executeHttpRequest})
+	 * @param downloadedFilePath absolute path the response body was actually saved to (see {@link HttpRequest#getDownloadFile()}/
+	 *        {@link HttpRequest#getDownloadTarget()}), or null if the body was not saved to a file
+	 */
+	public HttpResponse(final String ipAddress, final int httpCode, final String httpCodeMessage, final String content, final String contentType, final Map<String, String> headers, final Map<String, String> cookieData,
+			final int redirectCount, final String finalUrl, final boolean credentialsDroppedOnRedirect, final String downloadedFilePath) {
 		this.ipAddress = ipAddress;
 		this.httpCode = httpCode;
 		this.httpCodeMessage = httpCodeMessage;
@@ -42,6 +56,7 @@ public class HttpResponse {
 		this.redirectCount = redirectCount;
 		this.finalUrl = finalUrl;
 		this.credentialsDroppedOnRedirect = credentialsDroppedOnRedirect;
+		this.downloadedFilePath = downloadedFilePath;
 	}
 
 	public String getIpAddress() {
@@ -81,6 +96,11 @@ public class HttpResponse {
 	/** True if an Authorization header and/or cookies were withheld at least once while following a redirect to a different origin */
 	public boolean isCredentialsDroppedOnRedirect() {
 		return credentialsDroppedOnRedirect;
+	}
+
+	/** Absolute path the response body was actually saved to, or null if the body was not saved to a file */
+	public String getDownloadedFilePath() {
+		return downloadedFilePath;
 	}
 
 	@Override

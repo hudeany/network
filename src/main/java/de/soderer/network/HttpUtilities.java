@@ -53,9 +53,6 @@ public class HttpUtilities {
 	private static boolean debugLog = false;
 	private static String TLS_VERSION = "TLS"; // Also possible definitions "TLSv1.2", "TLSv1.3"
 
-	private static final Pattern CONTENT_DISPOSITION_FILENAME_EXTENDED_PATTERN = Pattern.compile("filename\\*\\s*=\\s*[^']*''([^;]+)", Pattern.CASE_INSENSITIVE);
-	private static final Pattern CONTENT_DISPOSITION_FILENAME_PATTERN = Pattern.compile("filename\\s*=\\s*\"?([^\";]+)\"?", Pattern.CASE_INSENSITIVE);
-
 	// HttpURLConnection does not define constants for these two redirect status codes
 	private static final int HTTP_TEMPORARY_REDIRECT = 307;
 	private static final int HTTP_PERMANENT_REDIRECT = 308;
@@ -505,7 +502,7 @@ public class HttpUtilities {
 						final String ipAddress = getIpAddress(urlConnection);
 						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
 								"File downloaded", urlConnection.getContentType(), headers, cookiesMap,
-								redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
+								redirectCount, finalUrlForResponse, credentialsDroppedSoFar, httpRequest.getDownloadFile().getAbsolutePath());
 					} catch (final Exception e) {
 						if (httpRequest.getDownloadFile().exists()) {
 							httpRequest.getDownloadFile().delete();
@@ -520,7 +517,7 @@ public class HttpUtilities {
 						final String ipAddress = getIpAddress(urlConnection);
 						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
 								"File downloaded to '" + targetFile.getAbsolutePath() + "'", urlConnection.getContentType(), headers, cookiesMap,
-								redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
+								redirectCount, finalUrlForResponse, credentialsDroppedSoFar, targetFile.getAbsolutePath());
 					} catch (final Exception e) {
 						if (targetFile.exists()) {
 							targetFile.delete();
@@ -932,6 +929,12 @@ public class HttpUtilities {
 				.replace("\\", "\\\\")
 				.replace("\"", "\\\"");
 	}
+
+	private static final Pattern CONTENT_DISPOSITION_FILENAME_EXTENDED_PATTERN =
+			Pattern.compile("filename\\*\\s*=\\s*[^']*''([^;]+)", Pattern.CASE_INSENSITIVE);
+
+	private static final Pattern CONTENT_DISPOSITION_FILENAME_PATTERN =
+			Pattern.compile("filename\\s*=\\s*\"?([^\";]+)\"?", Pattern.CASE_INSENSITIVE);
 
 	/**
 	 * True if the response signals an actual file download (as opposed to e.g. a JSON/HTML response
