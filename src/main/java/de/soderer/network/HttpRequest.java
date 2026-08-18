@@ -42,6 +42,7 @@ public class HttpRequest {
 	private final List<UploadFileAttachment> uploadFileAttachments = new ArrayList<>();
 	private OutputStream downloadStream = null;
 	private File downloadFile = null;
+	private File downloadTarget = null;
 	private final Map<String, Object> pathParameterData = new LinkedHashMap<>();
 	private final Map<String, String> cookieData = new LinkedHashMap<>();
 
@@ -229,6 +230,8 @@ public class HttpRequest {
 	public HttpRequest setDownloadStream(final OutputStream downloadStream) throws Exception {
 		if (downloadFile != null) {
 			throw new Exception("DownloadFile is already set. DownloadStream cannot be set therefore");
+		} else if (downloadTarget != null) {
+			throw new Exception("DownloadTarget is already set. DownloadStream cannot be set therefore");
 		} else {
 			this.downloadStream = downloadStream;
 
@@ -243,8 +246,42 @@ public class HttpRequest {
 	public HttpRequest setDownloadFile(final File downloadFile) throws Exception {
 		if (downloadStream != null) {
 			throw new Exception("DownloadStream is already set. DownloadFile cannot be set therefore");
+		} else if (downloadTarget != null) {
+			throw new Exception("DownloadTarget is already set. DownloadFile cannot be set therefore");
 		} else {
 			this.downloadFile = downloadFile;
+
+			return this;
+		}
+	}
+
+	/**
+	 * Directory or specific file to save the response body to, but - unlike
+	 * {@link #getDownloadFile()}/{@link #getDownloadStream()}, which
+	 * unconditionally redirect the response body away from
+	 * {@link HttpResponse#getContent()} - only if the response actually
+	 * signals a file download via a "Content-Disposition: attachment" response
+	 * header. A response without that header is still read and returned as
+	 * normal text content even if this is set (see
+	 * {@link HttpUtilities#executeHttpRequest}).
+	 * <p>
+	 * May point to an existing directory (the actual file name is then derived
+	 * from the response, see {@link HttpUtilities}) or to a specific target
+	 * file. Either way, an already existing target file is never overwritten -
+	 * an ascending " (n)" suffix is appended before the file extension instead,
+	 * the same way a browser handles download name collisions.
+	 */
+	public File getDownloadTarget() {
+		return downloadTarget;
+	}
+
+	public HttpRequest setDownloadTarget(final File downloadTarget) throws Exception {
+		if (downloadStream != null) {
+			throw new Exception("DownloadStream is already set. DownloadTarget cannot be set therefore");
+		} else if (downloadFile != null) {
+			throw new Exception("DownloadFile is already set. DownloadTarget cannot be set therefore");
+		} else {
+			this.downloadTarget = downloadTarget;
 
 			return this;
 		}

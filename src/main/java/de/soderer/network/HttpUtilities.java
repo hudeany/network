@@ -1,6 +1,7 @@
 package de.soderer.network;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,6 +52,9 @@ import de.soderer.network.utilities.CaseInsensitiveLinkedMap;
 public class HttpUtilities {
 	private static boolean debugLog = false;
 	private static String TLS_VERSION = "TLS"; // Also possible definitions "TLSv1.2", "TLSv1.3"
+
+	private static final Pattern CONTENT_DISPOSITION_FILENAME_EXTENDED_PATTERN = Pattern.compile("filename\\*\\s*=\\s*[^']*''([^;]+)", Pattern.CASE_INSENSITIVE);
+	private static final Pattern CONTENT_DISPOSITION_FILENAME_PATTERN = Pattern.compile("filename\\s*=\\s*\"?([^\";]+)\"?", Pattern.CASE_INSENSITIVE);
 
 	// HttpURLConnection does not define constants for these two redirect status codes
 	private static final int HTTP_TEMPORARY_REDIRECT = 307;
@@ -508,6 +512,21 @@ public class HttpUtilities {
 						}
 						throw e;
 					}
+				} else if (httpRequest.getDownloadTarget() != null && 200 <= httpResponseCode && httpResponseCode <= 299
+						&& isFileDownloadResponse(headers)) {
+					final File targetFile = resolveDownloadTargetFile(httpRequest.getDownloadTarget(), headers, requestedUrl);
+					try (FileOutputStream downloadFileOutputStream = new FileOutputStream(targetFile)) {
+						NetworkUtilities.copy(urlConnection.getInputStream(), downloadFileOutputStream);
+						final String ipAddress = getIpAddress(urlConnection);
+						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
+								"File downloaded to '" + targetFile.getAbsolutePath() + "'", urlConnection.getContentType(), headers, cookiesMap,
+								redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
+					} catch (final Exception e) {
+						if (targetFile.exists()) {
+							targetFile.delete();
+						}
+						throw e;
+					}
 				} else {
 					try (BufferedReader httpResponseContentReader = new BufferedReader(
 							new InputStreamReader(urlConnection.getInputStream(), encoding))) {
@@ -912,6 +931,122 @@ public class HttpUtilities {
 		return value.replace("\r", "").replace("\n", "")
 				.replace("\\", "\\\\")
 				.replace("\"", "\\\"");
+	}
+
+	/**
+	 * True if the response signals an actual file download (as opposed to e.g. a JSON/HTML response
+	 * that just happens to have a {@link HttpRequest#getDownloadTarget()} configured "just in case"),
+	 * i.e. a "Content-Disposition: attachment[; ...]" response header is present. A missing header or
+	 * an explicit "inline" disposition (meant to be shown in the browser/client, not saved) is not
+	 * treated as a download.
+	 */
+	private static boolean isFileDownloadResponse(final Map<String, String> headers) {
+		final String contentDisposition = headers == null ? null : headers.get("Content-Disposition");
+		return contentDisposition != null && contentDisposition.trim().toLowerCase(Locale.ROOT).startsWith("attachment");
+	}
+
+	/**
+	 * Resolves the actual download target file for a {@link HttpRequest#getDownloadTarget()}: an
+	 * existing directory is combined with a filename derived from the response (see
+	 * {@link #resolveDownloadFileName}), any other (i.e. non-directory) target is used as the file
+	 * itself. Either way, an already existing target file is never overwritten (see
+	 * {@link #resolveNonCollidingFile}).
+	 */
+	private static File resolveDownloadTargetFile(final File downloadTarget, final Map<String, String> headers, final String requestedUrl) {
+		final File candidateFile = downloadTarget.isDirectory()
+				? new File(downloadTarget, resolveDownloadFileName(headers, requestedUrl))
+				: downloadTarget;
+		return resolveNonCollidingFile(candidateFile);
+	}
+
+	/**
+	 * Derives a download filename from the response, preferring the "Content-Disposition" header's
+	 * filename (RFC 6266, both the plain "filename=" parameter and the RFC 5987 encoded "filename*="
+	 * parameter, the latter taking precedence as it is meant for non-ASCII names), falling back to the
+	 * last path segment of the requested URL, and finally to a generic name if neither yields anything
+	 * usable.
+	 */
+	private static String resolveDownloadFileName(final Map<String, String> headers, final String requestedUrl) {
+		final String contentDisposition = headers == null ? null : headers.get("Content-Disposition");
+		if (contentDisposition != null) {
+			final Matcher extendedMatcher = CONTENT_DISPOSITION_FILENAME_EXTENDED_PATTERN.matcher(contentDisposition);
+			if (extendedMatcher.find()) {
+				final String decoded = URLDecoder.decode(extendedMatcher.group(1).trim(), StandardCharsets.UTF_8);
+				if (NetworkUtilities.isNotBlank(decoded)) {
+					return sanitizeDownloadFileName(decoded);
+				}
+			}
+
+			final Matcher simpleMatcher = CONTENT_DISPOSITION_FILENAME_PATTERN.matcher(contentDisposition);
+			if (simpleMatcher.find()) {
+				final String value = simpleMatcher.group(1).trim();
+				if (NetworkUtilities.isNotBlank(value)) {
+					return sanitizeDownloadFileName(value);
+				}
+			}
+		}
+
+		if (requestedUrl != null) {
+			String path = requestedUrl;
+			final int queryIndex = path.indexOf('?');
+			if (queryIndex >= 0) {
+				path = path.substring(0, queryIndex);
+			}
+			final String lastSegment = path.substring(path.lastIndexOf('/') + 1);
+			if (NetworkUtilities.isNotBlank(lastSegment)) {
+				try {
+					return sanitizeDownloadFileName(URLDecoder.decode(lastSegment, StandardCharsets.UTF_8));
+				} catch (@SuppressWarnings("unused") final Exception e) {
+					return sanitizeDownloadFileName(lastSegment);
+				}
+			}
+		}
+
+		return "download";
+	}
+
+	/**
+	 * Strips path separators and other characters that must not end up in a plain file name (e.g. a
+	 * maliciously crafted Content-Disposition header trying to escape the target directory via "../"
+	 * or an absolute path).
+	 */
+	private static String sanitizeDownloadFileName(final String rawFileName) {
+		String fileName = rawFileName.replace('\\', '/');
+		final int lastSlash = fileName.lastIndexOf('/');
+		if (lastSlash >= 0) {
+			fileName = fileName.substring(lastSlash + 1);
+		}
+		fileName = fileName.trim();
+		if (fileName.isEmpty() || ".".equals(fileName) || "..".equals(fileName)) {
+			return "download";
+		}
+		return fileName;
+	}
+
+	/**
+	 * If "candidateFile" already exists, appends an ascending " (n)" suffix before the file extension
+	 * until a non-existing path is found - the same collision handling a browser applies to downloads
+	 * (e.g. "report.pdf", "report (1).pdf", "report (2).pdf", ...).
+	 */
+	private static File resolveNonCollidingFile(final File candidateFile) {
+		if (!candidateFile.exists()) {
+			return candidateFile;
+		}
+
+		final File parentDir = candidateFile.getParentFile();
+		final String name = candidateFile.getName();
+		final int dotIndex = name.lastIndexOf('.');
+		final String baseName = dotIndex > 0 ? name.substring(0, dotIndex) : name;
+		final String extension = dotIndex > 0 ? name.substring(dotIndex) : "";
+
+		int suffix = 1;
+		File candidate;
+		do {
+			candidate = new File(parentDir, baseName + " (" + suffix + ")" + extension);
+			suffix++;
+		} while (candidate.exists());
+
+		return candidate;
 	}
 
 	/**
