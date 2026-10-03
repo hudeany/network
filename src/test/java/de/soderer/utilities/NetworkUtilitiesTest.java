@@ -1,5 +1,9 @@
 package de.soderer.utilities;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -8,8 +12,7 @@ import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import de.soderer.network.HttpContentType;
 import de.soderer.network.NetworkUtilities;
@@ -19,49 +22,49 @@ public class NetworkUtilitiesTest {
 	@Test
 	public void testContentType() {
 		try {
-			Assert.assertTrue(HttpContentType.getHttpContentTypeByName("text/plain") == HttpContentType.Text);
-			Assert.assertTrue(HttpContentType.getHttpContentTypeByName("text/plain; charset=UTF-8") == HttpContentType.Text);
+			assertTrue(HttpContentType.getHttpContentTypeByName("text/plain") == HttpContentType.Text);
+			assertTrue(HttpContentType.getHttpContentTypeByName("text/plain; charset=UTF-8") == HttpContentType.Text);
 		} catch (final Exception e) {
-			Assert.fail(e.getMessage());
+			fail(e.getMessage());
 		}
 	}
 
 	@Test
 	public void testIpV4() {
 		try {
-			Assert.assertTrue(NetworkUtilities.isValidIpV4("0.0.0.0"));
-			Assert.assertTrue(NetworkUtilities.isValidIpV4("255.255.255.255"));
-			Assert.assertTrue(NetworkUtilities.isValidIpV4("192.168.0.5"));
+			assertTrue(NetworkUtilities.isValidIpV4("0.0.0.0"));
+			assertTrue(NetworkUtilities.isValidIpV4("255.255.255.255"));
+			assertTrue(NetworkUtilities.isValidIpV4("192.168.0.5"));
 
-			Assert.assertFalse(NetworkUtilities.isValidIpV4("0.0.0"));
-			Assert.assertFalse(NetworkUtilities.isValidIpV4("256.0.0.0"));
-			Assert.assertFalse(NetworkUtilities.isValidIpV4("0.256.0.0"));
-			Assert.assertFalse(NetworkUtilities.isValidIpV4("0.0.256.0"));
-			Assert.assertFalse(NetworkUtilities.isValidIpV4("0.0.0.256"));
+			assertFalse(NetworkUtilities.isValidIpV4("0.0.0"));
+			assertFalse(NetworkUtilities.isValidIpV4("256.0.0.0"));
+			assertFalse(NetworkUtilities.isValidIpV4("0.256.0.0"));
+			assertFalse(NetworkUtilities.isValidIpV4("0.0.256.0"));
+			assertFalse(NetworkUtilities.isValidIpV4("0.0.0.256"));
 		} catch (final Exception e) {
-			Assert.fail(e.getMessage());
+			fail(e.getMessage());
 		}
 	}
 
 	@Test
 	public void testIpV6() {
 		try {
-			Assert.assertTrue(NetworkUtilities.isValidIpV6("1080:0:0:0:8:800:200C:417A"));
-			Assert.assertTrue(NetworkUtilities.isValidIpV6("1080:0:0:0:8:800:200c:417A"));
-			Assert.assertTrue(NetworkUtilities.isValidIpV6("1080::8:800:200C:417A"));
-			Assert.assertTrue(NetworkUtilities.isValidIpV6("1080::8:800:200C:417a"));
-			Assert.assertTrue(NetworkUtilities.isValidIpV6("::FFFF:129.144.52.38"));
-			Assert.assertTrue(NetworkUtilities.isValidIpV6("::ffff:129.144.52.38"));
-			Assert.assertTrue(NetworkUtilities.isValidIpV6("::129.144.52.38"));
-			Assert.assertTrue(NetworkUtilities.isValidIpV6("::FFFF:255"));
+			assertTrue(NetworkUtilities.isValidIpV6("1080:0:0:0:8:800:200C:417A"));
+			assertTrue(NetworkUtilities.isValidIpV6("1080:0:0:0:8:800:200c:417A"));
+			assertTrue(NetworkUtilities.isValidIpV6("1080::8:800:200C:417A"));
+			assertTrue(NetworkUtilities.isValidIpV6("1080::8:800:200C:417a"));
+			assertTrue(NetworkUtilities.isValidIpV6("::FFFF:129.144.52.38"));
+			assertTrue(NetworkUtilities.isValidIpV6("::ffff:129.144.52.38"));
+			assertTrue(NetworkUtilities.isValidIpV6("::129.144.52.38"));
+			assertTrue(NetworkUtilities.isValidIpV6("::FFFF:255"));
 
-			Assert.assertFalse(NetworkUtilities.isValidIpV6("::FFFF:144.52.38"));
-			Assert.assertFalse(NetworkUtilities.isValidIpV6("::ffff:144.52.38"));
-			Assert.assertFalse(NetworkUtilities.isValidIpV6("::FFFF:52.38"));
-			Assert.assertFalse(NetworkUtilities.isValidIpV6("::ffff:52.38"));
-			Assert.assertFalse(NetworkUtilities.isValidIpV6("::52.38"));
+			assertFalse(NetworkUtilities.isValidIpV6("::FFFF:144.52.38"));
+			assertFalse(NetworkUtilities.isValidIpV6("::ffff:144.52.38"));
+			assertFalse(NetworkUtilities.isValidIpV6("::FFFF:52.38"));
+			assertFalse(NetworkUtilities.isValidIpV6("::ffff:52.38"));
+			assertFalse(NetworkUtilities.isValidIpV6("::52.38"));
 		} catch (final Exception e) {
-			Assert.fail(e.getMessage());
+			fail(e.getMessage());
 		}
 	}
 
@@ -102,29 +105,29 @@ public class NetworkUtilitiesTest {
 					+ "-----END CERTIFICATE-----\n";
 
 			try (InputStream dataStream = NetworkUtilities.openHttpsDataInputStreamWithPemCertificate("https://soderer.de", new ByteArrayInputStream(dst_CA_PemString.getBytes(StandardCharsets.UTF_8)))) {
-				Assert.assertTrue(dataStream != null);
+				assertTrue(dataStream != null);
 				final String data = toString(dataStream, StandardCharsets.UTF_8);
-				Assert.assertTrue(data != null && data.length() > 10);
+				assertTrue(data != null && data.length() > 10);
 			}
 		} catch (final Exception e) {
-			Assert.fail(e.getMessage());
+			fail(e.getMessage());
 		}
 	}
 
 	@Test
 	public void testHostnamePatternMatches() {
 		try {
-			Assert.assertTrue(NetworkUtilities.hostnamePatternMatches("subdomain.myDomain", "*.myDomain"));
-			Assert.assertTrue(NetworkUtilities.hostnamePatternMatches("10.123.234.234", "10.*.*.*"));
-			Assert.assertTrue(NetworkUtilities.hostnamePatternMatches("subdomain.other.myDomain", "subdomain.*.myDomain"));
-			Assert.assertTrue(NetworkUtilities.hostnamePatternMatches("subdomain.mydomain", "*.MYDOMAIN"));
+			assertTrue(NetworkUtilities.hostnamePatternMatches("subdomain.myDomain", "*.myDomain"));
+			assertTrue(NetworkUtilities.hostnamePatternMatches("10.123.234.234", "10.*.*.*"));
+			assertTrue(NetworkUtilities.hostnamePatternMatches("subdomain.other.myDomain", "subdomain.*.myDomain"));
+			assertTrue(NetworkUtilities.hostnamePatternMatches("subdomain.mydomain", "*.MYDOMAIN"));
 
-			Assert.assertFalse(NetworkUtilities.hostnamePatternMatches("notMyHost", "myHost"));
-			Assert.assertFalse(NetworkUtilities.hostnamePatternMatches("subdomain.notMyDomain", "*.myDomain"));
-			Assert.assertFalse(NetworkUtilities.hostnamePatternMatches("subdomain.other.NotMyDomain", "subdomain.*.myDomain"));
-			Assert.assertFalse(NetworkUtilities.hostnamePatternMatches("subdomain.NotMyDomain", "subdomain.*.myDomain"));
+			assertFalse(NetworkUtilities.hostnamePatternMatches("notMyHost", "myHost"));
+			assertFalse(NetworkUtilities.hostnamePatternMatches("subdomain.notMyDomain", "*.myDomain"));
+			assertFalse(NetworkUtilities.hostnamePatternMatches("subdomain.other.NotMyDomain", "subdomain.*.myDomain"));
+			assertFalse(NetworkUtilities.hostnamePatternMatches("subdomain.NotMyDomain", "subdomain.*.myDomain"));
 		} catch (final Exception e) {
-			Assert.fail(e.getMessage());
+			fail(e.getMessage());
 		}
 	}
 

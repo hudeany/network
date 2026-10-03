@@ -1,8 +1,8 @@
 package de.soderer.utilities;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -12,7 +12,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import de.soderer.network.NetworkUtilities;
 
@@ -39,7 +39,7 @@ public class NetworkUtilitiesProxyConnectTest {
 			final Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("localhost", fakeProxy.getLocalPort()));
 			final boolean result = NetworkUtilities.testConnection("example.com", 443, 2000, proxy);
 
-			assertFalse("A '200' substring inside an unrelated status/reason must not be treated as success", result);
+			assertFalse(result, "A '200' substring inside an unrelated status/reason must not be treated as success");
 		}
 	}
 
