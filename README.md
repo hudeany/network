@@ -1,5 +1,8 @@
 # Network
-Java Network Utilities (HTTP Requests / WakeOnLan / TLS-Cert-Check))
+
+[![Maven Central](https://img.shields.io/maven-central/v/de.soderer/network)](https://central.sonatype.com/artifact/de.soderer/network)
+
+Java Network Utilities (HTTP Requests / WakeOnLan / TLS-Cert-Check)
 
 This HttpRequest Utility can check the TLS server certificate
 - by default system trusted KeyStore
@@ -10,6 +13,28 @@ HttpRequest can contain URL and POST parameters and also Cookie data.
 File upload and download is supported.
 BasicAuth and other Header, like UserAgent, data is supported.
 Timeouts can be set for connecting and for request execution separately.
+
+## Usage
+
+The library is available on Maven Central. Replace `VERSION` with the version shown in the badge above.
+
+Maven:
+
+```xml
+<dependency>
+	<groupId>de.soderer</groupId>
+	<artifactId>network</artifactId>
+	<version>VERSION</version>
+</dependency>
+```
+
+Gradle:
+
+```groovy
+implementation "de.soderer:network:VERSION"
+```
+
+Without a build tool, the jar can be downloaded from the [GitHub releases](https://github.com/hudeany/network/releases).
 
 ## Basic HTTP Request:
 ```
@@ -23,7 +48,7 @@ import de.soderer.network.HttpRequest;
 import de.soderer.network.HttpRequest.HttpMethod;
 import de.soderer.network.HttpResponse;
 import de.soderer.network.HttpUtilities;
-import de.soderer.network.TrustManagerUtilities;
+import de.soderer.network.trustmanager.TrustManagerUtilities;
 
 public class SimpleTest {
 	public static void main(final String[] args) throws Exception {
@@ -62,6 +87,10 @@ public class SimpleTest {
 
 ## Wake On LAN (WOL):
 ```
+import de.soderer.network.NetworkUtilities;
+
+...
+
 String macAddressString = "00:80:41:AE:FD:7E";
-NetworkUtilities.wakeOnLanPing(macAddressString)
+NetworkUtilities.wakeOnLanPing(macAddressString);
 ```

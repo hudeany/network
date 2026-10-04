@@ -45,17 +45,18 @@ public class TrustManagerUtilities {
 	public static X509TrustManager createTrustAllTrustManager() {
 		return new X509TrustManager() {
 			@Override
-			public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-				return null;
+			public X509Certificate[] getAcceptedIssuers() {
+				// X509TrustManager contract requires a non-null array
+				return new X509Certificate[0];
 			}
 
 			@Override
-			public void checkClientTrusted(final java.security.cert.X509Certificate[] certificates, final String authType) {
+			public void checkClientTrusted(final X509Certificate[] certificates, final String authType) {
 				// nothing to do
 			}
 
 			@Override
-			public void checkServerTrusted(final java.security.cert.X509Certificate[] certificates, final String authType) {
+			public void checkServerTrusted(final X509Certificate[] certificates, final String authType) {
 				// nothing to do
 			}
 		};
