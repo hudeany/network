@@ -78,6 +78,20 @@ public class NetworkRegressionTest {
 	}
 
 	@Test
+	public void testParameterOrderIsKept() throws Exception {
+		final HttpRequest request = new HttpRequest("https://example.com")
+				.addPostParameter("zeta", 1)
+				.addPostParameter("alpha", 2)
+				.addPostParameter("mike", 3)
+				.addUrlParameter("zeta", 1)
+				.addUrlParameter("alpha", 2)
+				.addUrlParameter("mike", 3);
+		// Parameters are sent in the order they were added
+		Assertions.assertEquals("zeta=1&alpha=2&mike=3", HttpUtilities.convertToParameterString(request.getPostParameters(), StandardCharsets.UTF_8));
+		Assertions.assertEquals("zeta=1&alpha=2&mike=3", HttpUtilities.convertToParameterString(request.getUrlParameters(), StandardCharsets.UTF_8));
+	}
+
+	@Test
 	public void testMacAddressPartTooLong() {
 		Assertions.assertThrows(IllegalArgumentException.class, () -> NetworkUtilities.getMacAddressBytes("123:00:00:00:00:00"));
 	}

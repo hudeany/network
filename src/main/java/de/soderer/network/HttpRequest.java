@@ -12,7 +12,6 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -66,11 +65,11 @@ public class HttpRequest {
 	/**
 	 * Parameters added to the URL query.
 	 */
-	private final Map<String, List<Object>> urlParameters = new HashMap<>();
+	private final Map<String, List<Object>> urlParameters = new LinkedHashMap<>();
 	/**
 	 * Parameters sent as form data in the body.
 	 */
-	private final Map<String, List<Object>> postParameters= new HashMap<>();
+	private final Map<String, List<Object>> postParameters = new LinkedHashMap<>();
 	/**
 	 * Body text.
 	 */
