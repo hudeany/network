@@ -40,7 +40,17 @@ import javax.net.ssl.TrustManagerFactory;
 
 import de.soderer.network.trustmanager.TrustManagerUtilities;
 
+/**
+ * Network helper methods: connection tests through proxies, ping, Wake-on-LAN, TLS certificate
+ * retrieval, and validation of host names, IP addresses, email addresses and URIs.
+ */
 public class NetworkUtilities {
+	/**
+	 * Utility class, not to be instantiated.
+	 */
+	private NetworkUtilities() {
+	}
+
 	private static final String SPECIAL_CHARS_REGEXP = "\\p{Cntrl}\\(\\)<>@,;:'\\\\\\\"\\.\\[\\]";
 	private static final String VALID_CHARS_REGEXP = "[^\\s" + SPECIAL_CHARS_REGEXP + "]";
 	private static final String QUOTED_USER_REGEXP = "(\"[^\"]*\")";
@@ -87,19 +97,33 @@ public class NetworkUtilities {
 	private static final Pattern DOMAIN_NAME_PATTERN = Pattern.compile(DOMAIN_NAME_REGEX);
 
 	/**
-	 * Connection test with 2000 milliseconds default timeout
+	 * Tests whether a TCP connection to a host can be built up, with a timeout of 2 seconds.
 	 *
 	 * @param hostname
+	 *            the host name or IP address
 	 * @param port
-	 * @return
+	 *            the port
+	 * @return true, if the connection was built up
 	 * @throws Exception
+	 *             if the host name cannot be resolved or the connection fails
 	 */
 	public static boolean testConnection(final String hostname, final int port) throws Exception {
 		return testConnection(hostname, port, 2000);
 	}
 
 	/**
-	 * @param timeoutMillis connect timeout in milliseconds. A value &lt;= 0 means "no timeout" (blocks until connected or the OS gives up)
+	 * Tests whether a TCP connection to a host can be built up.
+	 *
+	 * @param hostname
+	 *            the host name or IP address
+	 * @param port
+	 *            the port
+	 * @param timeoutMillis
+	 *            connect timeout in milliseconds. A value &lt;= 0 means "no timeout" (blocks until
+	 *            connected or the OS gives up)
+	 * @return true, if the connection was built up
+	 * @throws Exception
+	 *             if the host name cannot be resolved or the connection fails
 	 */
 	public static boolean testConnection(final String hostname, final int port, final int timeoutMillis) throws Exception {
 		try (Socket socket = new Socket()) {
@@ -118,7 +142,21 @@ public class NetworkUtilities {
 	}
 
 	/**
-	 * @param timeoutMillis connect and read timeout in milliseconds, applied both to the proxy connection and, indirectly, to the tunnelled target connection. A value &lt;= 0 means "no timeout"
+	 * Tests whether a TCP connection to a host can be built up, through an HTTP proxy by a CONNECT
+	 * request.
+	 *
+	 * @param hostname
+	 *            the host name or IP address
+	 * @param port
+	 *            the port
+	 * @param timeoutMillis
+	 *            connect and read timeout in milliseconds, applied both to the proxy connection and,
+	 *            indirectly, to the tunnelled target connection. A value &lt;= 0 means "no timeout"
+	 * @param proxy
+	 *            the proxy, null or {@link Proxy#NO_PROXY} for a direct connection
+	 * @return true, if the connection was built up, false if the proxy rejected it
+	 * @throws Exception
+	 *             if the host name cannot be resolved, contains CR or LF, or the connection fails
 	 */
 	public static boolean testConnection(final String hostname, final int port, final int timeoutMillis, final Proxy proxy) throws Exception {
 		if (proxy == null || proxy.equals(Proxy.NO_PROXY)) {
@@ -192,6 +230,16 @@ public class NetworkUtilities {
 		throw new SocketException("Invalid response from proxy: connection was closed before a complete status line was received");
 	}
 
+	/**
+	 * Checks whether a host is reachable: by an HTTP(S) connection for "http://" and "https://" URLs,
+	 * otherwise by an ICMP echo or TCP connection (see {@link InetAddress#isReachable(int)}).
+	 *
+	 * @param ipOrHostname
+	 *            the host name, IP address or URL
+	 * @param proxy
+	 *            the proxy for HTTP(S) URLs, null for the system's default proxy
+	 * @return true, if the host is reachable
+	 */
 	public static boolean ping(final String ipOrHostname, final Proxy proxy) {
 		try {
 			if (ipOrHostname.toLowerCase(Locale.ROOT).trim().startsWith("http://")) {
@@ -237,6 +285,15 @@ public class NetworkUtilities {
 		}
 	}
 
+	/**
+	 * Parses a MAC address like "00:1A:2B:3C:4D:5E", with ":", "-" or blank as separator.
+	 *
+	 * @param macAddress
+	 *            the MAC address
+	 * @return the 6 bytes of the address
+	 * @throws IllegalArgumentException
+	 *             if the MAC address is invalid
+	 */
 	public static byte[] getMacAddressBytes(final String macAddress) throws IllegalArgumentException {
 		if (isEmpty(macAddress)) {
 			throw new IllegalArgumentException("Invalid MAC address");
@@ -250,6 +307,10 @@ public class NetworkUtilities {
 		try {
 			final byte[] bytes = new byte[6];
 			for (int i = 0; i < 6; i++) {
+				// One or two hex digits per byte, longer parts like "123" would be truncated silently
+				if (hexParts[i].isEmpty() || hexParts[i].length() > 2) {
+					throw new IllegalArgumentException("Invalid MAC address part: '" + hexParts[i] + "'");
+				}
 				bytes[i] = (byte) Integer.parseInt(hexParts[i], 16);
 			}
 			return bytes;
@@ -258,6 +319,13 @@ public class NetworkUtilities {
 		}
 	}
 
+	/**
+	 * Sends a Wake-on-LAN "magic packet" for a MAC address as UDP broadcast on port 9.
+	 *
+	 * @param macAddress
+	 *            the MAC address of the computer to wake up
+	 * @return true, if the packet was sent
+	 */
 	public static boolean wakeOnLanPing(final String macAddress) {
 		try {
 			final byte[] macBytes = getMacAddressBytes(macAddress);
@@ -277,6 +345,11 @@ public class NetworkUtilities {
 		}
 	}
 
+	/**
+	 * Checks whether a network interface other than loopback is up.
+	 *
+	 * @return true, if a network connection is available
+	 */
 	public static boolean checkForNetworkConnection() {
 		try {
 			for (final NetworkInterface networkInterface : Collections.list(NetworkInterface.getNetworkInterfaces())) {
@@ -290,6 +363,14 @@ public class NetworkUtilities {
 		}
 	}
 
+	/**
+	 * Returns the host part of a request string like "https://example.com:8443/path", including a
+	 * port if given.
+	 *
+	 * @param requestString
+	 *            the URL or host
+	 * @return the host (with port), or the given string if it contains no path
+	 */
 	public static String getHostnameFromRequestString(String requestString) {
 		if (requestString == null || !requestString.contains("/")) {
 			return requestString;
@@ -306,10 +387,37 @@ public class NetworkUtilities {
 		}
 	}
 
+	/**
+	 * Returns the TLS certificate chain of a server, checked against the system's default truststore.
+	 *
+	 * @param host
+	 *            the host
+	 * @param port
+	 *            the port
+	 * @return the certificates, the server's own certificate first
+	 * @throws Exception
+	 *             if the connection or the certificate check fails
+	 */
 	public static List<X509Certificate> getTlsServerCertificates(final String host, final int port) throws Exception {
 		return getTlsServerCertificates(host, port, null, false);
 	}
 
+	/**
+	 * Returns the TLS certificate chain of a server.
+	 *
+	 * @param host
+	 *            the host
+	 * @param port
+	 *            the port
+	 * @param proxy
+	 *            the proxy, null for the system's default proxy
+	 * @param noCertCheck
+	 *            true to skip the certificate and host name check, e.g. to retrieve a self-signed
+	 *            certificate
+	 * @return the certificates, the server's own certificate first
+	 * @throws Exception
+	 *             if the connection or the certificate check fails
+	 */
 	public static List<X509Certificate> getTlsServerCertificates(final String host, final int port, final Proxy proxy, final boolean noCertCheck) throws Exception {
 		final HttpsURLConnection httpsURLConnection;
 		if (proxy == null) {
@@ -346,8 +454,15 @@ public class NetworkUtilities {
 		}
 	}
 
+	/**
+	 * Returns the protocol of an URL.
+	 *
+	 * @param requestString
+	 *            the URL, may be null
+	 * @return the protocol in lower case, e.g. "https", or null if there is none
+	 */
 	public static String getProtocolFromRequestString(final String requestString) {
-		if (requestString.contains("://")) {
+		if (requestString != null && requestString.contains("://")) {
 			return requestString.substring(0, requestString.indexOf("://")).toLowerCase(Locale.ROOT);
 		} else {
 			return null;
@@ -355,9 +470,9 @@ public class NetworkUtilities {
 	}
 
 	/**
-	 * Get hostname of this machine
+	 * Returns the host name of this machine.
 	 *
-	 * @return
+	 * @return the host name, or "Unknown hostname" if it cannot be determined
 	 */
 	public static String getHostName() {
 		try {
@@ -367,6 +482,15 @@ public class NetworkUtilities {
 		}
 	}
 
+	/**
+	 * Checks a domain name syntactically: at least two labels and a top level domain of letters.
+	 * International names are checked in their ASCII form. The top level domain ".local" is not
+	 * accepted.
+	 *
+	 * @param domain
+	 *            the domain name
+	 * @return true, if the domain name is valid
+	 */
 	public static boolean isValidDomain(final String domain) {
 		String asciiDomainName;
 		try {
@@ -384,6 +508,13 @@ public class NetworkUtilities {
 		return DOMAIN_NAME_PATTERN.matcher(asciiDomainName).matches();
 	}
 
+	/**
+	 * Checks an email address syntactically (user and domain part).
+	 *
+	 * @param emailAddress
+	 *            the email address
+	 * @return true, if the email address is valid
+	 */
 	public static boolean isValidEmail(final String emailAddress) {
 		final Matcher m = EMAIL_PATTERN.matcher(emailAddress);
 
@@ -405,14 +536,35 @@ public class NetworkUtilities {
 		return true;
 	}
 
+	/**
+	 * Checks the user part of an email address syntactically.
+	 *
+	 * @param user
+	 *            the user part
+	 * @return true, if the user part is valid
+	 */
 	public static boolean isValidUser(final String user) {
 		return USER_PATTERN.matcher(user).matches();
 	}
 
+	/**
+	 * Checks a host name syntactically, see {@link #isValidDomain(String)}.
+	 *
+	 * @param value
+	 *            the host name
+	 * @return true, if the host name is valid
+	 */
 	public static boolean isValidHostname(final String value) {
 		return isValidDomain(value);
 	}
 
+	/**
+	 * Checks whether a host name can be resolved by DNS.
+	 *
+	 * @param value
+	 *            the host name
+	 * @return true, if the host name can be resolved
+	 */
 	public static boolean isValidHostnameOnline(final String value) {
 		try {
 			InetAddress.getByName(value);
@@ -422,14 +574,35 @@ public class NetworkUtilities {
 		}
 	}
 
+	/**
+	 * Checks an IPv4 address like "192.168.0.1".
+	 *
+	 * @param ipv4
+	 *            the address
+	 * @return true, if the address is valid
+	 */
 	public static boolean isValidIpV4(final String ipv4) {
 		return IPV4_PATTERN.matcher(ipv4).matches();
 	}
 
+	/**
+	 * Checks an IPv6 address, also in shortened form, with zone index or embedded IPv4 address.
+	 *
+	 * @param ipv6
+	 *            the address without brackets
+	 * @return true, if the address is valid
+	 */
 	public static boolean isValidIpV6(final String ipv6) {
 		return IPV6_PATTERN.matcher(ipv6).matches();
 	}
 
+	/**
+	 * Checks an URI syntactically.
+	 *
+	 * @param uri
+	 *            the URI
+	 * @return true, if the URI can be parsed
+	 */
 	public static boolean isValidUri(final String uri) {
 		try {
 			@SuppressWarnings("unused")
@@ -440,6 +613,18 @@ public class NetworkUtilities {
 		}
 	}
 
+	/**
+	 * Opens an HTTPS connection that only trusts the given certificates, and returns the response
+	 * body.
+	 *
+	 * @param urlString
+	 *            the HTTPS URL
+	 * @param pemCertificateInputStream
+	 *            the trusted certificates in PEM format
+	 * @return the response body stream, to be closed by the caller
+	 * @throws Exception
+	 *             if the URL is no HTTPS URL, the certificates are invalid, or the connection fails
+	 */
 	public static InputStream openHttpsDataInputStreamWithPemCertificate(final String urlString, final InputStream pemCertificateInputStream) throws Exception {
 		if (urlString == null || !urlString.toLowerCase(Locale.ROOT).startsWith("https://")) {
 			throw new Exception("Invalid urlString for https connection: " + urlString);
@@ -466,22 +651,59 @@ public class NetworkUtilities {
 		return (InputStream) connection.getContent();
 	}
 
+	/**
+	 * Checks whether a text is null or has length 0.
+	 *
+	 * @param value
+	 *            the text
+	 * @return true, if the text is null or has length 0
+	 */
 	public static boolean isEmpty(final String value) {
 		return value == null || value.length() == 0;
 	}
 
+	/**
+	 * Checks whether a text is not null and has length greater than 0.
+	 *
+	 * @param value
+	 *            the text
+	 * @return true, if the text is not null and has length greater than 0
+	 */
 	public static boolean isNotEmpty(final String value) {
 		return !isEmpty(value);
 	}
 
+	/**
+	 * Checks whether a text is null, empty or contains only whitespace.
+	 *
+	 * @param value
+	 *            the text
+	 * @return true, if the text is null, empty or contains only whitespace
+	 */
 	public static boolean isBlank(final String value) {
 		return value == null || value.length() == 0 || value.trim().length() == 0;
 	}
 
+	/**
+	 * Checks whether a text is not null and contains other characters than whitespace.
+	 *
+	 * @param value
+	 *            the text
+	 * @return true, if the text is not null and contains other characters than whitespace
+	 */
 	public static boolean isNotBlank(final String value) {
 		return !isBlank(value);
 	}
 
+	/**
+	 * Checks whether a text ends with a suffix, ignoring case.
+	 *
+	 * @param data
+	 *            the text, may be null
+	 * @param suffix
+	 *            the suffix, may be null
+	 * @return true, if the text ends with the suffix, or both are null
+	 */
 	public static boolean endsWithIgnoreCase(final String data, final String suffix) {
 		if (data == suffix) {
 			// both null or same object
@@ -501,6 +723,17 @@ public class NetworkUtilities {
 		}
 	}
 
+	/**
+	 * Copies all data of a stream to another stream. The streams are not closed.
+	 *
+	 * @param inputStream
+	 *            the stream to read
+	 * @param outputStream
+	 *            the stream to write
+	 * @return the number of bytes copied
+	 * @throws IOException
+	 *             if reading or writing fails
+	 */
 	public static long copy(final InputStream inputStream, final OutputStream outputStream) throws IOException {
 		final byte[] buffer = new byte[4096];
 		int lengthRead;
@@ -513,6 +746,16 @@ public class NetworkUtilities {
 		return bytesCopied;
 	}
 
+	/**
+	 * Checks whether a host name matches a pattern with "*" wildcards, ignoring case. A "*" matches
+	 * any characters including dots, e.g. "*.example.com" also matches "a.b.example.com".
+	 *
+	 * @param hostname
+	 *            the host name
+	 * @param hostnamePattern
+	 *            the pattern
+	 * @return true, if the host name matches
+	 */
 	public static boolean hostnamePatternMatches(final String hostname, final String hostnamePattern) {
 		final StringBuilder hostnamePatternEscaped = new StringBuilder();
 		for (final char c : hostnamePattern.toCharArray()) {

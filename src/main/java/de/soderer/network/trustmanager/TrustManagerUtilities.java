@@ -17,7 +17,23 @@ import javax.net.ssl.X509TrustManager;
 import de.soderer.network.HttpUtilities;
 import de.soderer.network.NetworkUtilities;
 
+/**
+ * Helper methods to create trust managers and read truststores.
+ */
 public class TrustManagerUtilities {
+	/**
+	 * Utility class, not to be instantiated.
+	 */
+	private TrustManagerUtilities() {
+	}
+
+	/**
+	 * Returns the trust managers of the system's default truststore.
+	 *
+	 * @return the trust managers
+	 * @throws Exception
+	 *             if the default truststore cannot be loaded
+	 */
 	public static TrustManager[] getDefaultTrustManagers() throws Exception {
 		final TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
 
@@ -27,6 +43,13 @@ public class TrustManagerUtilities {
 		return trustManagerFactory.getTrustManagers();
 	}
 
+	/**
+	 * Returns the X509 trust manager of the system's default truststore.
+	 *
+	 * @return the trust manager
+	 * @throws Exception
+	 *             if the default truststore cannot be loaded
+	 */
 	public static X509TrustManager getDefaultTrustManager() throws Exception {
 		final TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
 
@@ -42,6 +65,12 @@ public class TrustManagerUtilities {
 		throw new IllegalStateException("No system default X509TrustManager found");
 	}
 
+	/**
+	 * Creates a trust manager that accepts all certificates (insecure). Only use it to retrieve
+	 * certificates or for connections that need no protection.
+	 *
+	 * @return the trust manager
+	 */
 	public static X509TrustManager createTrustAllTrustManager() {
 		return new X509TrustManager() {
 			@Override
@@ -62,10 +91,32 @@ public class TrustManagerUtilities {
 		};
 	}
 
+	/**
+	 * Reads a keystore without password. A keystore that appears empty is read again with an empty
+	 * password.
+	 *
+	 * @param keystoreInputStream
+	 *            the keystore data
+	 * @return the keystore
+	 * @throws Exception
+	 *             if the keystore cannot be read
+	 */
 	public static KeyStore readKeyStore(final InputStream keystoreInputStream) throws Exception {
 		return readKeyStore(keystoreInputStream, null);
 	}
 
+	/**
+	 * Reads a keystore. Without password, a keystore that appears empty is read again with an empty
+	 * password.
+	 *
+	 * @param keystoreInputStream
+	 *            the keystore data
+	 * @param keystorePassword
+	 *            the password, null for none
+	 * @return the keystore
+	 * @throws Exception
+	 *             if the keystore cannot be read
+	 */
 	public static KeyStore readKeyStore(final InputStream keystoreInputStream, final char[] keystorePassword) throws Exception {
 		final java.io.ByteArrayOutputStream keystoreBuffer = new java.io.ByteArrayOutputStream();
 		NetworkUtilities.copy(keystoreInputStream, keystoreBuffer);
@@ -84,18 +135,58 @@ public class TrustManagerUtilities {
 		return trustedKeyStore;
 	}
 
+	/**
+	 * Creates a trust manager that only trusts the certificates of a keystore without password.
+	 *
+	 * @param keystoreInputStream
+	 *            the keystore data
+	 * @return the trust manager
+	 * @throws Exception
+	 *             if the keystore cannot be read
+	 */
 	public static TrustManager createTrustManagerForKeyStore(final InputStream keystoreInputStream) throws Exception {
 		return createTrustManagerForKeyStore(readKeyStore(keystoreInputStream, null));
 	}
 
+	/**
+	 * Creates a trust manager that only trusts the certificates of a keystore.
+	 *
+	 * @param keystoreInputStream
+	 *            the keystore data
+	 * @param keystorePassword
+	 *            the password, null for none
+	 * @return the trust manager
+	 * @throws Exception
+	 *             if the keystore cannot be read
+	 */
 	public static TrustManager createTrustManagerForKeyStore(final InputStream keystoreInputStream, final char[] keystorePassword) throws Exception {
 		return createTrustManagerForKeyStore(readKeyStore(keystoreInputStream, keystorePassword));
 	}
 
+	/**
+	 * Reads a keystore file without password, see {@link #readKeyStore(InputStream)}.
+	 *
+	 * @param keystoreFile
+	 *            the keystore file
+	 * @return the keystore
+	 * @throws Exception
+	 *             if the keystore cannot be read
+	 */
 	public static KeyStore readKeyStore(final File keystoreFile) throws Exception {
 		return readKeyStore(keystoreFile, null);
 	}
 
+	/**
+	 * Reads a keystore file, see {@link #readKeyStore(InputStream, char[])}.
+	 *
+	 * @param keystoreFile
+	 *            the keystore file
+	 * @param keystorePassword
+	 *            the password, null for none
+	 * @return the keystore
+	 * @throws Exception
+	 *             if the keystore cannot be read
+	 */
 	public static KeyStore readKeyStore(final File keystoreFile, final char[] keystorePassword) throws Exception {
 		KeyStore trustedKeyStore = KeyStore.getInstance(KeyStore.getDefaultType());
 		try (FileInputStream myKeys = new FileInputStream(keystoreFile)) {
@@ -110,25 +201,48 @@ public class TrustManagerUtilities {
 		return trustedKeyStore;
 	}
 
+	/**
+	 * Creates a trust manager that only trusts the certificates of a keystore without password.
+	 *
+	 * @param keystoreFile
+	 *            the keystore file
+	 * @return the trust manager
+	 * @throws Exception
+	 *             if the keystore cannot be read
+	 */
 	public static TrustManager createTrustManagerForKeyStore(final File keystoreFile) throws Exception {
 		return createTrustManagerForKeyStore(readKeyStore(keystoreFile, null));
 	}
 
+	/**
+	 * Creates a trust manager that only trusts the certificates of a keystore.
+	 *
+	 * @param keystoreFile
+	 *            the keystore file
+	 * @param keystorePassword
+	 *            the password, null for none
+	 * @return the trust manager
+	 * @throws Exception
+	 *             if the keystore cannot be read
+	 */
 	public static TrustManager createTrustManagerForKeyStore(final File keystoreFile, final char[] keystorePassword) throws Exception {
 		return createTrustManagerForKeyStore(readKeyStore(keystoreFile, keystorePassword));
 	}
 
 	/**
-	 * Override systems default trusted keystore and define a trusted keystore to be used as single trusted keystore for certificate checks
-	 *
-	 * Usage:
-	 *   SSLContext sslContext = SSLContext.getInstance("TLS");
-	 *   sslContext.init(null, new TrustManager[] { createTrustmanagerForKeyStore(myOnlyTrustedKeyStore) }, null);
-	 *   SSLContext.setDefault(sslContext);
+	 * Override systems default trusted keystore and define a trusted keystore to be used as single
+	 * trusted keystore for certificate checks.
+	 * <pre>
+	 * SSLContext sslContext = SSLContext.getInstance("TLS");
+	 * sslContext.init(null, new TrustManager[] { createTrustManagerForKeyStore(myOnlyTrustedKeyStore) }, null);
+	 * SSLContext.setDefault(sslContext);
+	 * </pre>
 	 *
 	 * @param trustedKeyStore
-	 * @return
+	 *            the trusted certificates
+	 * @return the trust manager
 	 * @throws Exception
+	 *             if no trust manager can be created
 	 */
 	public static TrustManager createTrustManagerForKeyStore(final KeyStore trustedKeyStore) throws Exception {
 		final TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
@@ -143,6 +257,24 @@ public class TrustManagerUtilities {
 		throw new Exception("Cannot create TrustManager");
 	}
 
+	/**
+	 * Retrieves the TLS certificate of a server without checking it, and saves it in a new
+	 * truststore file, e.g. to trust a self-signed certificate later.
+	 *
+	 * @param hostnameOrIpAndPort
+	 *            the host with optional port, e.g. "example.com:8443" or "[::1]:8443"
+	 * @param defaultPort
+	 *            the port if none is given
+	 * @param trustStoreFile
+	 *            the truststore file to create
+	 * @param trustStorePassword
+	 *            the truststore password, null for none
+	 * @param proxy
+	 *            the proxy, null for a direct connection
+	 * @throws Exception
+	 *             if the file already exists, the port is invalid, or the certificate cannot be
+	 *             retrieved or saved
+	 */
 	public static void createTrustStoreFile(final String hostnameOrIpAndPort, final int defaultPort, final File trustStoreFile, final char[] trustStorePassword, final Proxy proxy) throws Exception {
 		if (trustStoreFile.exists()) {
 			throw new Exception("File '" + trustStoreFile.getAbsolutePath() + "' already exists");

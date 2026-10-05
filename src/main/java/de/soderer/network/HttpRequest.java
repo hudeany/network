@@ -20,6 +20,16 @@ import java.util.Map;
 
 import de.soderer.network.utilities.CaseInsensitiveLinkedMap;
 
+/**
+ * HTTP request to be executed by {@link HttpUtilities#executeHttpRequest(HttpRequest)}, or parsed
+ * from raw request data on server side by {@link #parseHttpRequestData(InputStream, int)}.
+ * <p>
+ * The request body is defined by exactly one of: post parameters (with optional file uploads as
+ * multipart data), a request body text, or a request body stream. The response body can be
+ * redirected to a stream, a file, or a download target that is only used for file downloads.
+ * All setters return this request for chaining.
+ * </p>
+ */
 public class HttpRequest {
 	/** Default maximum size of the header block, guards against resource-exhaustion from malformed/malicious requests */
 	public static final int DEFAULT_MAX_HEADER_SIZE = 64 * 1024; // 64 KB
@@ -27,23 +37,71 @@ public class HttpRequest {
 	/** Default maximum body size (Content-Length or accumulated chunked size) */
 	public static final int DEFAULT_MAX_BODY_SIZE = 10 * 1024 * 1024; // 10 MB
 
+	/**
+	 * The request method.
+	 */
 	private final HttpMethod requestMethod;
+	/**
+	 * The URL, optionally without protocol.
+	 */
 	private final String url;
+	/**
+	 * Encoding of parameters and body text.
+	 */
 	private Charset encoding = StandardCharsets.UTF_8;
 
+	/**
+	 * Connect timeout, -1 for the default.
+	 */
 	private int connectTimeoutMillis = -1;
+	/**
+	 * Read timeout, -1 for the default.
+	 */
 	private int readTimeoutMillis = -1;
 
+	/**
+	 * Request headers with case insensitive names.
+	 */
 	private final Map<String, String> headers = new CaseInsensitiveLinkedMap<>();
+	/**
+	 * Parameters added to the URL query.
+	 */
 	private final Map<String, List<Object>> urlParameters = new HashMap<>();
+	/**
+	 * Parameters sent as form data in the body.
+	 */
 	private final Map<String, List<Object>> postParameters= new HashMap<>();
+	/**
+	 * Body text.
+	 */
 	private String requestBody = null;
+	/**
+	 * Body stream.
+	 */
 	private InputStream requestBodyContentStream = null;
+	/**
+	 * Files sent as multipart data.
+	 */
 	private final List<UploadFileAttachment> uploadFileAttachments = new ArrayList<>();
+	/**
+	 * Stream receiving the response body.
+	 */
 	private OutputStream downloadStream = null;
+	/**
+	 * File receiving the response body.
+	 */
 	private File downloadFile = null;
+	/**
+	 * Directory or file receiving a file download.
+	 */
 	private File downloadTarget = null;
+	/**
+	 * Matrix parameters added to the URL path (";name=value").
+	 */
 	private final Map<String, Object> pathParameterData = new LinkedHashMap<>();
+	/**
+	 * Cookies sent with the request.
+	 */
 	private final Map<String, String> cookieData = new LinkedHashMap<>();
 
 	/**
@@ -64,11 +122,33 @@ public class HttpRequest {
 	 */
 	private volatile HttpURLConnection httpURLConnection = null;
 
+	/**
+	 * File sent as part of a multipart/form-data request.
+	 */
 	public class UploadFileAttachment {
+		/**
+		 * Name of the form field.
+		 */
 		private String htmlInputName;
+		/**
+		 * Name of the file.
+		 */
 		private String fileName;
+		/**
+		 * Content of the file.
+		 */
 		private byte[] data;
 
+		/**
+		 * Creates a file attachment.
+		 *
+		 * @param htmlInputName
+		 *            name of the form field
+		 * @param fileName
+		 *            name of the file
+		 * @param data
+		 *            content of the file
+		 */
 		public UploadFileAttachment(final String htmlInputName, final String fileName, final byte[] data) {
 			super();
 			this.htmlInputName = htmlInputName;
@@ -76,28 +156,64 @@ public class HttpRequest {
 			this.data = data;
 		}
 
+		/**
+		 * Returns the name of the form field.
+		 *
+		 * @return the name of the form field
+		 */
 		public String getHtmlInputName() {
 			return htmlInputName;
 		}
 
+		/**
+		 * Sets the name of the form field.
+		 *
+		 * @param htmlInputName
+		 *            the name of the form field
+		 * @return this attachment for chaining
+		 */
 		public UploadFileAttachment setHtmlInputName(final String htmlInputName) {
 			this.htmlInputName = htmlInputName;
 			return this;
 		}
 
+		/**
+		 * Returns the name of the file.
+		 *
+		 * @return the name of the file
+		 */
 		public String getFileName() {
 			return fileName;
 		}
 
+		/**
+		 * Sets the name of the file.
+		 *
+		 * @param fileName
+		 *            the name of the file
+		 * @return this attachment for chaining
+		 */
 		public UploadFileAttachment setFileName(final String fileName) {
 			this.fileName = fileName;
 			return this;
 		}
 
+		/**
+		 * Returns the content of the file.
+		 *
+		 * @return the content of the file
+		 */
 		public byte[] getData() {
 			return data;
 		}
 
+		/**
+		 * Sets the content of the file.
+		 *
+		 * @param data
+		 *            the content of the file
+		 * @return this attachment for chaining
+		 */
 		public UploadFileAttachment setData(final byte[] data) {
 			this.data = data;
 			return this;
@@ -105,15 +221,27 @@ public class HttpRequest {
 	}
 
 	/**
-	 * Http POST Request
+	 * Creates a POST request.
 	 *
 	 * @param url
+	 *            the URL, "https://" is added if it has no protocol
 	 * @throws Exception
+	 *             if the URL is blank
 	 */
 	public HttpRequest(final String url) throws Exception {
 		this(HttpMethod.POST, url);
 	}
 
+	/**
+	 * Creates a request.
+	 *
+	 * @param requestMethod
+	 *            the method, null for GET
+	 * @param url
+	 *            the URL, "https://" is added if it has no protocol
+	 * @throws Exception
+	 *             if the URL is blank
+	 */
 	public HttpRequest(final HttpMethod requestMethod, final String url) throws Exception {
 		if (NetworkUtilities.isBlank(url)) {
 			throw new Exception("Invalid empty url");
@@ -122,19 +250,30 @@ public class HttpRequest {
 		this.url = url;
 	}
 
+	/**
+	 * Returns the request method.
+	 *
+	 * @return the method
+	 */
 	public HttpMethod getRequestMethod() {
 		return requestMethod;
 	}
 
+	/**
+	 * Returns the URL as given.
+	 *
+	 * @return the URL, maybe without protocol
+	 */
 	public String getUrl() {
 		return url;
 	}
 
 	/**
-	 * Check for protocol "https://" or "http://" (fallback: "http://")
+	 * Returns the URL with protocol: an URL without "https://" or "http://" gets the prefix "https://".
 	 *
-	 * @return
+	 * @return the URL with protocol
 	 * @throws Exception
+	 *             if the URL is empty
 	 */
 	public String getUrlWithProtocol() throws Exception {
 		if (NetworkUtilities.isBlank(url)) {
@@ -146,16 +285,39 @@ public class HttpRequest {
 		}
 	}
 
+	/**
+	 * Returns the request headers.
+	 *
+	 * @return the modifiable headers with case insensitive names
+	 */
 	public Map<String, String> getHeaders() {
 		return headers;
 	}
 
+	/**
+	 * Sets a request header, replacing a header with the same name.
+	 *
+	 * @param key
+	 *            the header name, case insensitive
+	 * @param value
+	 *            the header value
+	 * @return this request for chaining
+	 */
 	public HttpRequest addHeader(final String key, final String value) {
 		headers.put(key, value);
 
 		return this;
 	}
 
+	/**
+	 * Sets the "User-Agent" header.
+	 *
+	 * @param userAgent
+	 *            the user agent
+	 * @return this request for chaining
+	 * @throws Exception
+	 *             if the header is already set
+	 */
 	public HttpRequest addUserAgentHeader(final String userAgent) throws Exception {
 		if (headers.containsKey(HttpConstants.HTTPHEADERNAME_USER_AGENT)) {
 			throw new Exception("Request already contains a UserAgentHeader");
@@ -166,6 +328,18 @@ public class HttpRequest {
 		}
 	}
 
+	/**
+	 * Sets the "Authorization" header for basic authentication. The header is not sent to other
+	 * origins when following redirects.
+	 *
+	 * @param username
+	 *            the user name
+	 * @param password
+	 *            the password
+	 * @return this request for chaining
+	 * @throws Exception
+	 *             if the header is already set
+	 */
 	public HttpRequest addBasicAuthenticationHeader(final String username, final String password) throws Exception {
 		if (headers.containsKey(HttpConstants.HTTPHEADERNAME_AUTHORIZATION)) {
 			throw new Exception("Request already contains a BasicAuthenticationHeader");
@@ -176,10 +350,24 @@ public class HttpRequest {
 		}
 	}
 
+	/**
+	 * Returns the parameters added to the URL query.
+	 *
+	 * @return the modifiable parameters, each name with its values
+	 */
 	public Map<String, List<Object>> getUrlParameters() {
 		return urlParameters;
 	}
 
+	/**
+	 * Adds a parameter to the URL query. A name may be added multiple times.
+	 *
+	 * @param key
+	 *            the parameter name
+	 * @param value
+	 *            the parameter value, converted by toString()
+	 * @return this request for chaining
+	 */
 	public HttpRequest addUrlParameter(final String key, final Object value) {
 		if (!urlParameters.containsKey(key)) {
 			urlParameters.put(key, new ArrayList<>());
@@ -189,10 +377,26 @@ public class HttpRequest {
 		return this;
 	}
 
+	/**
+	 * Returns the parameters sent as form data in the body.
+	 *
+	 * @return the modifiable parameters, each name with its values
+	 */
 	public Map<String, List<Object>> getPostParameters() {
 		return postParameters;
 	}
 
+	/**
+	 * Adds a parameter sent as form data in the body. A name may be added multiple times.
+	 *
+	 * @param key
+	 *            the parameter name
+	 * @param value
+	 *            the parameter value, converted by toString()
+	 * @return this request for chaining
+	 * @throws Exception
+	 *             if a request body text or stream is set
+	 */
 	public HttpRequest addPostParameter(final String key, final Object value) throws Exception {
 		if (requestBody != null) {
 			throw new Exception("RequestBody is already set. Post parameters cannot be set therefore");
@@ -208,10 +412,28 @@ public class HttpRequest {
 		}
 	}
 
+	/**
+	 * Returns the files sent as multipart data.
+	 *
+	 * @return the modifiable list of files
+	 */
 	public List<UploadFileAttachment> getUploadFileAttachments() {
 		return uploadFileAttachments;
 	}
 
+	/**
+	 * Adds a file sent as multipart/form-data.
+	 *
+	 * @param htmlInputName
+	 *            name of the form field
+	 * @param fileName
+	 *            name of the file
+	 * @param data
+	 *            content of the file
+	 * @return this request for chaining
+	 * @throws Exception
+	 *             if a request body text or stream is set
+	 */
 	public HttpRequest addUploadFileData(final String htmlInputName, final String fileName, final byte[] data) throws Exception {
 		if (requestBody != null) {
 			throw new Exception("RequestBody is already set. UploadFileAttachments cannot be set therefore");
@@ -223,10 +445,24 @@ public class HttpRequest {
 		}
 	}
 
+	/**
+	 * Returns the stream receiving the response body.
+	 *
+	 * @return the stream, or null
+	 */
 	public OutputStream getDownloadStream() {
 		return downloadStream;
 	}
 
+	/**
+	 * Sets a stream receiving the response body, instead of {@link HttpResponse#getContent()}.
+	 *
+	 * @param downloadStream
+	 *            the stream, not closed after the download
+	 * @return this request for chaining
+	 * @throws Exception
+	 *             if a download file or target is set
+	 */
 	public HttpRequest setDownloadStream(final OutputStream downloadStream) throws Exception {
 		if (downloadFile != null) {
 			throw new Exception("DownloadFile is already set. DownloadStream cannot be set therefore");
@@ -239,10 +475,24 @@ public class HttpRequest {
 		}
 	}
 
+	/**
+	 * Returns the file receiving the response body.
+	 *
+	 * @return the file, or null
+	 */
 	public File getDownloadFile() {
 		return downloadFile;
 	}
 
+	/**
+	 * Sets a file receiving the response body, instead of {@link HttpResponse#getContent()}.
+	 *
+	 * @param downloadFile
+	 *            the file
+	 * @return this request for chaining
+	 * @throws Exception
+	 *             if a download stream or target is set
+	 */
 	public HttpRequest setDownloadFile(final File downloadFile) throws Exception {
 		if (downloadStream != null) {
 			throw new Exception("DownloadStream is already set. DownloadFile cannot be set therefore");
@@ -270,11 +520,22 @@ public class HttpRequest {
 	 * file. Either way, an already existing target file is never overwritten -
 	 * an ascending " (n)" suffix is appended before the file extension instead,
 	 * the same way a browser handles download name collisions.
+	 *
+	 * @return the directory or file, or null
 	 */
 	public File getDownloadTarget() {
 		return downloadTarget;
 	}
 
+	/**
+	 * Sets the directory or file receiving a file download, see {@link #getDownloadTarget()}.
+	 *
+	 * @param downloadTarget
+	 *            the directory or file
+	 * @return this request for chaining
+	 * @throws Exception
+	 *             if a download stream or file is set
+	 */
 	public HttpRequest setDownloadTarget(final File downloadTarget) throws Exception {
 		if (downloadStream != null) {
 			throw new Exception("DownloadStream is already set. DownloadTarget cannot be set therefore");
@@ -287,38 +548,83 @@ public class HttpRequest {
 		}
 	}
 
+	/**
+	 * Returns the matrix parameters added to the URL path.
+	 *
+	 * @return the modifiable parameters
+	 */
 	public Map<String, Object> getPathParameterData() {
 		return pathParameterData;
 	}
 
+	/**
+	 * Adds a matrix parameter to the URL path (";name=value").
+	 *
+	 * @param key
+	 *            the parameter name
+	 * @param value
+	 *            the parameter value, converted by toString()
+	 * @return this request for chaining
+	 */
 	public HttpRequest addPathParameter(final String key, final Object value) {
 		pathParameterData.put(key, value);
 
 		return this;
 	}
 
+	/**
+	 * Returns the cookies sent with the request.
+	 *
+	 * @return the modifiable cookies by name
+	 */
 	public Map<String, String> getCookieData() {
 		return cookieData;
 	}
 
+	/**
+	 * Adds a cookie sent with the request. Cookies are not sent to other origins when following
+	 * redirects.
+	 *
+	 * @param name
+	 *            the cookie name
+	 * @param value
+	 *            the cookie value
+	 * @return this request for chaining
+	 */
 	public HttpRequest addCookieData(final String name, final String value) {
 		cookieData.put(name, value);
 
 		return this;
 	}
 
+	/**
+	 * Returns the encoding of parameters and body text.
+	 *
+	 * @return the encoding, UTF-8 by default
+	 */
 	public Charset getEncoding() {
 		return encoding;
 	}
 
+	/**
+	 * Sets the encoding of parameters and body text.
+	 *
+	 * @param encoding
+	 *            the encoding, null for UTF-8
+	 * @return this request for chaining
+	 */
 	public HttpRequest setEncoding(final Charset encoding) {
-		this.encoding = encoding;
+		this.encoding = encoding == null ? StandardCharsets.UTF_8 : encoding;
 
 		return this;
 	}
 
 	/**
-	 * Timeout for build up the connection to the server
+	 * Sets the timeout for building up the connection to the server.
+	 *
+	 * @param connectTimeoutMillis
+	 *            the timeout in milliseconds, 0 for no timeout, negative for the default
+	 * @return this request for chaining
 	 */
 	public HttpRequest setConnectionTimeoutMillis(final int connectTimeoutMillis) {
 		this.connectTimeoutMillis = connectTimeoutMillis;
@@ -326,12 +632,21 @@ public class HttpRequest {
 		return this;
 	}
 
+	/**
+	 * Returns the timeout for building up the connection.
+	 *
+	 * @return the timeout in milliseconds, negative for the default
+	 */
 	public int getConnectTimeoutMillis() {
 		return connectTimeoutMillis;
 	}
 
 	/**
-	 * Timeout for wait for the servers response after sending the request
+	 * Sets the timeout for waiting for the server's response after sending the request.
+	 *
+	 * @param readTimeoutMillis
+	 *            the timeout in milliseconds, 0 for no timeout, negative for the default
+	 * @return this request for chaining
 	 */
 	public HttpRequest setReadTimeoutMillis(final int readTimeoutMillis) {
 		this.readTimeoutMillis = readTimeoutMillis;
@@ -339,18 +654,42 @@ public class HttpRequest {
 		return this;
 	}
 
+	/**
+	 * Returns the timeout for waiting for the response.
+	 *
+	 * @return the timeout in milliseconds, negative for the default
+	 */
 	public int getReadTimeoutMillis() {
 		return readTimeoutMillis;
 	}
 
+	/**
+	 * Returns the body text.
+	 *
+	 * @return the body text, or null
+	 */
 	public String getRequestBody() {
 		return requestBody;
 	}
 
+	/**
+	 * Returns the body stream.
+	 *
+	 * @return the body stream, or null
+	 */
 	public InputStream getRequestBodyContentStream() {
 		return requestBodyContentStream;
 	}
 
+	/**
+	 * Sets the body text, sent in the request encoding.
+	 *
+	 * @param requestBody
+	 *            the body text
+	 * @return this request for chaining
+	 * @throws Exception
+	 *             if post parameters, file uploads or a body stream are set
+	 */
 	public HttpRequest setRequestBody(final String requestBody) throws Exception {
 		if (postParameters.size() > 0) {
 			throw new Exception("Post parameters are already set. RequestBody cannot be set therefore");
@@ -365,6 +704,15 @@ public class HttpRequest {
 		}
 	}
 
+	/**
+	 * Sets a stream with the body data.
+	 *
+	 * @param requestBodyContentStream
+	 *            the body stream
+	 * @return this request for chaining
+	 * @throws Exception
+	 *             if post parameters, file uploads or a body text are set
+	 */
 	public HttpRequest setRequestBodyContentStream(final InputStream requestBodyContentStream) throws Exception {
 		if (postParameters.size() > 0) {
 			throw new Exception("Post parameters are already set. RequestBody cannot be set therefore");
@@ -379,13 +727,23 @@ public class HttpRequest {
 		}
 	}
 
+	/**
+	 * Returns how redirects are followed, see {@link #setMaxRedirects(int)}.
+	 *
+	 * @return 0 for no redirects, negative for unlimited, positive for the maximum number of hops
+	 */
 	public int getMaxRedirects() {
 		return maxRedirects;
 	}
 
 	/**
-	 * @param maxRedirects 0 = do not follow redirects, negative = follow redirects without a hop limit,
-	 *                      positive = maximum number of redirect hops to follow before failing
+	 * Sets how redirects are followed. Authorization headers and cookies are not sent to other
+	 * origins.
+	 *
+	 * @param maxRedirects
+	 *            0 = do not follow redirects, negative = follow redirects without a hop limit,
+	 *            positive = maximum number of redirect hops to follow before failing
+	 * @return this request for chaining
 	 */
 	public HttpRequest setMaxRedirects(final int maxRedirects) {
 		this.maxRedirects = maxRedirects;
@@ -394,30 +752,61 @@ public class HttpRequest {
 	}
 
 	/** Convenience for existing callers: true means "follow up to {@link #DEFAULT_MAX_REDIRECTS} hops", false means "do not follow". Use {@link #setMaxRedirects(int)} for finer control (e.g. unlimited or a custom hop limit) */
+	/**
+	 * Returns whether redirects are followed at all.
+	 *
+	 * @return true, if redirects are followed
+	 */
 	public boolean isFollowRedirects() {
 		return maxRedirects != 0;
 	}
 
 	/** Convenience for existing callers: true means "follow up to {@link #DEFAULT_MAX_REDIRECTS} hops", false means "do not follow". Use {@link #setMaxRedirects(int)} for finer control (e.g. unlimited or a custom hop limit) */
+	/**
+	 * Convenience for existing callers: true means "follow up to {@link #DEFAULT_MAX_REDIRECTS} hops",
+	 * false means "do not follow". Use {@link #setMaxRedirects(int)} for finer control (e.g. unlimited
+	 * or a custom hop limit).
+	 *
+	 * @param followRedirects
+	 *            true to follow redirects
+	 * @return this request for chaining
+	 */
 	public HttpRequest setFollowRedirects(final boolean followRedirects) {
 		maxRedirects = followRedirects ? DEFAULT_MAX_REDIRECTS : 0;
 
 		return this;
 	}
 
+	/**
+	 * Returns the connection of the request currently executed.
+	 *
+	 * @return the connection, or null if the request is not being executed
+	 */
 	public HttpURLConnection getHttpURLConnection() {
 		return httpURLConnection;
 	}
 
+	/**
+	 * Sets the connection of the request currently executed, so it can be cancelled.
+	 *
+	 * @param httpURLConnection
+	 *            the connection, or null
+	 */
 	protected void setHttpURLConnection(final HttpURLConnection httpURLConnection) {
 		this.httpURLConnection = httpURLConnection;
 	}
 
+	/**
+	 * Returns method and URL, e.g. "GET https://example.com".
+	 */
 	@Override
 	public String toString() {
 		return requestMethod.name() + " " + url;
 	}
 
+	/**
+	 * Cancels the request currently executed by disconnecting its connection.
+	 */
 	public void cancel() {
 		if (httpURLConnection != null) {
 			try {
@@ -456,11 +845,38 @@ public class HttpRequest {
 	 * <p>pathParameterData is left empty since it depends on a route template unknown to this
 	 * parser; populate it afterwards via {@link #addPathParameter(String, Object)} once routing
 	 * has matched the request.</p>
+	 *
+	 * <p>Header block and body are limited to {@link #DEFAULT_MAX_HEADER_SIZE} and
+	 * {@link #DEFAULT_MAX_BODY_SIZE}.</p>
+	 *
+	 * @param inputStream
+	 *            the stream to read from, e.g. of a socket
+	 * @param timeoutMillis
+	 *            the maximum total time for reading, greater than 0
+	 * @return the request read
+	 * @throws IOException
+	 *             if the request is invalid, too large, or reading fails or times out
 	 */
 	public static HttpRequest parseHttpRequestData(final InputStream inputStream, final int timeoutMillis) throws IOException {
 		return parseHttpRequestData(inputStream, timeoutMillis, DEFAULT_MAX_HEADER_SIZE, DEFAULT_MAX_BODY_SIZE);
 	}
 
+	/**
+	 * Parses raw HTTP/1.x request data with custom size limits, see
+	 * {@link #parseHttpRequestData(InputStream, int)}.
+	 *
+	 * @param inputStream
+	 *            the stream to read from, e.g. of a socket
+	 * @param timeoutMillis
+	 *            the maximum total time for reading, greater than 0
+	 * @param maxHeaderSize
+	 *            the maximum size of the header block in bytes
+	 * @param maxBodySize
+	 *            the maximum size of the body in bytes
+	 * @return the request read
+	 * @throws IOException
+	 *             if the request is invalid, too large, or reading fails or times out
+	 */
 	public static HttpRequest parseHttpRequestData(final InputStream inputStream, final int timeoutMillis, final int maxHeaderSize, final int maxBodySize) throws IOException {
 		if (inputStream == null) {
 			throw new IllegalArgumentException("inputStream must not be null");
@@ -504,10 +920,15 @@ public class HttpRequest {
 		final int queryIndex = rawRequestTarget.indexOf('?');
 		if (queryIndex >= 0) {
 			final String queryString = rawRequestTarget.substring(queryIndex + 1);
-			for (final Map.Entry<String, List<Object>> entry : parseUrlEncodedParameters(queryString).entrySet()) {
-				for (final Object value : entry.getValue()) {
-					request.addUrlParameter(entry.getKey(), value);
+			try {
+				for (final Map.Entry<String, List<Object>> entry : parseUrlEncodedParameters(queryString).entrySet()) {
+					for (final Object value : entry.getValue()) {
+						request.addUrlParameter(entry.getKey(), value);
+					}
 				}
+			} catch (final IllegalArgumentException e) {
+				// URLDecoder rejects malformed escapes like "%zz"
+				throw new IOException("Invalid URL encoding in request target: '" + rawRequestTarget + "'", e);
 			}
 		}
 
@@ -517,11 +938,20 @@ public class HttpRequest {
 			if (line.isBlank()) {
 				continue;
 			}
+			if (line.charAt(0) == ' ' || line.charAt(0) == '\t') {
+				// RFC 7230 3.2.4: obsolete line folding must be rejected (or replaced) by a server
+				throw new IOException("Invalid folded header line: '" + line + "'");
+			}
 			final int colonIndex = line.indexOf(':');
 			if (colonIndex <= 0) {
 				throw new IOException("Invalid header line: '" + line + "'");
 			}
-			final String headerName = line.substring(0, colonIndex).trim();
+			final String headerName = line.substring(0, colonIndex);
+			if (!headerName.equals(headerName.trim()) || headerName.indexOf(' ') >= 0 || headerName.indexOf('\t') >= 0) {
+				// RFC 7230 3.2.4: whitespace between header name and colon must be rejected, because
+				// intermediaries may interpret such a header differently (request smuggling)
+				throw new IOException("Invalid whitespace in header name: '" + line + "'");
+			}
 			final String headerValue = line.substring(colonIndex + 1).trim();
 			final String existingValue = request.getHeaders().get(headerName);
 			if (existingValue == null) {
@@ -690,7 +1120,8 @@ public class HttpRequest {
 				}
 				break;
 			}
-			if (result.size() + chunkSize > maxBodySize) {
+			// Compared by subtraction, because "result.size() + chunkSize" can overflow for huge chunk sizes
+			if (chunkSize > maxBodySize - result.size()) {
 				throw new IOException("Chunked body exceeds maximum allowed size of " + maxBodySize + " bytes");
 			}
 			final byte[] chunkData = readExactBytes(inputStream, chunkSize, deadline);
@@ -860,11 +1291,13 @@ public class HttpRequest {
 			final String headerName = headerLine.substring(0, colonIndex).trim();
 			final String headerValue = headerLine.substring(colonIndex + 1).trim();
 			if ("Content-Disposition".equalsIgnoreCase(headerName)) {
-				for (final String segment : headerValue.split(";")) {
+				// Quoted values may contain ';', e.g. filename="a;b.txt"
+				for (final String segment : splitHeaderParameters(headerValue)) {
 					final String trimmedSegment = segment.trim();
-					if (trimmedSegment.startsWith("name=")) {
+					final String lowerCaseSegment = trimmedSegment.toLowerCase(Locale.ROOT);
+					if (lowerCaseSegment.startsWith("name=")) {
 						name = unescapeMultipartHeaderValue(stripQuotes(trimmedSegment.substring("name=".length())));
-					} else if (trimmedSegment.startsWith("filename=")) {
+					} else if (lowerCaseSegment.startsWith("filename=")) {
 						fileName = unescapeMultipartHeaderValue(stripQuotes(trimmedSegment.substring("filename=".length())));
 					}
 				}
@@ -901,6 +1334,35 @@ public class HttpRequest {
 			}
 		}
 		return result.toString();
+	}
+
+	/**
+	 * Splits header parameters at ';', ignoring ';' within double quotes (with backslash escapes).
+	 *
+	 * @param headerValue
+	 *            the header value
+	 * @return the parameter segments
+	 */
+	private static List<String> splitHeaderParameters(final String headerValue) {
+		final List<String> segments = new ArrayList<>();
+		final StringBuilder segment = new StringBuilder();
+		boolean inQuotes = false;
+		for (int i = 0; i < headerValue.length(); i++) {
+			final char c = headerValue.charAt(i);
+			if (inQuotes && c == '\\' && i + 1 < headerValue.length()) {
+				segment.append(c).append(headerValue.charAt(++i));
+			} else if (c == '"') {
+				inQuotes = !inQuotes;
+				segment.append(c);
+			} else if (c == ';' && !inQuotes) {
+				segments.add(segment.toString());
+				segment.setLength(0);
+			} else {
+				segment.append(c);
+			}
+		}
+		segments.add(segment.toString());
+		return segments;
 	}
 
 	private static String stripQuotes(final String value) {

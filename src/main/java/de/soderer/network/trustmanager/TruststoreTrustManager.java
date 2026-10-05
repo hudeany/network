@@ -14,7 +14,7 @@ import javax.net.ssl.X509TrustManager;
  * Usage example:
  *
  * <pre>
- * TrustManager[] trustManagers = new TrustManager[] { new CustomTrustStoreTrustManager("truststore.jks", "changeit".toCharArray()) };
+ * TrustManager[] trustManagers = new TrustManager[] { new TruststoreTrustManager(new File("truststore.jks"), "changeit".toCharArray()) };
  *
  * SSLContext context = SSLContext.getInstance("TLS");
  * context.init(null, trustManagers, new SecureRandom());
@@ -31,6 +31,16 @@ import javax.net.ssl.X509TrustManager;
 public class TruststoreTrustManager implements X509TrustManager {
 	private final X509TrustManager trustManager;
 
+	/**
+	 * Creates a trust manager that only trusts the certificates of a truststore file.
+	 *
+	 * @param trustStoreFile
+	 *            the truststore file
+	 * @param trustStorePassword
+	 *            the truststore password, null for none
+	 * @throws Exception
+	 *             if the truststore cannot be read
+	 */
 	public TruststoreTrustManager(final File trustStoreFile, final char[] trustStorePassword) throws Exception {
 		final KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
 		try (FileInputStream fis = new FileInputStream(trustStoreFile)) {

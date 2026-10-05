@@ -49,7 +49,21 @@ import de.soderer.network.HttpRequest.UploadFileAttachment;
 import de.soderer.network.trustmanager.TrustManagerUtilities;
 import de.soderer.network.utilities.CaseInsensitiveLinkedMap;
 
+/**
+ * Executes HTTP requests via {@link HttpURLConnection} and provides HTTP related helper methods.
+ * <p>
+ * Requests can be sent through a proxy (with optional proxy authentication) and with a custom
+ * {@link TrustManager} for TLS certificate checks. Redirects are followed as configured in the
+ * request, without sending credentials to other origins.
+ * </p>
+ */
 public class HttpUtilities {
+	/**
+	 * Utility class, not to be instantiated.
+	 */
+	private HttpUtilities() {
+	}
+
 	private static boolean debugLog = false;
 	private static String TLS_VERSION = "TLS"; // Also possible definitions "TLSv1.2", "TLSv1.3"
 
@@ -60,31 +74,50 @@ public class HttpUtilities {
 	private static HostnameVerifier TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER = (hostname, session) -> true;
 
 	/**
-	 * Use systems default proxy, if set on JVM start. Use systems default KeyStore
-	 * to check TLS server certificates.
+	 * Executes a request. Uses the system's default proxy, if set on JVM start, and the system's
+	 * default truststore to check TLS server certificates.
 	 *
 	 * @param httpRequest
-	 * @return
+	 *            the request
+	 * @return the response, also for HTTP error status codes
 	 * @throws Exception
+	 *             if the request cannot be sent or the response cannot be read
 	 */
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest) throws Exception {
 		return executeHttpRequest(httpRequest, null, (TrustManager) null, false);
 	}
 
 	/**
-	 * Use systems default proxy, if set on JVM start. To override default proxy
-	 * usage use "executeHttpRequest(httpRequest, Proxy.NO_PROXY)"
-	 *
-	 * Use systems default KeyStore to check TLS server certificates.
+	 * Executes a request through a proxy. Uses the system's default truststore to check TLS server
+	 * certificates.
 	 *
 	 * @param httpRequest
-	 * @return
+	 *            the request
+	 * @param proxy
+	 *            the proxy, null for the system's default proxy, {@link Proxy#NO_PROXY} for a direct
+	 *            connection
+	 * @return the response, also for HTTP error status codes
 	 * @throws Exception
+	 *             if the request cannot be sent or the response cannot be read
 	 */
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy) throws Exception {
 		return executeHttpRequest(httpRequest, proxy, (TrustManager) null, false);
 	}
 
+	/**
+	 * Executes a request, checking TLS server certificates only against the given truststore.
+	 *
+	 * @param httpRequest
+	 *            the request
+	 * @param proxy
+	 *            the proxy, null for the system's default proxy, {@link Proxy#NO_PROXY} for a direct
+	 *            connection
+	 * @param trustedKeyStore
+	 *            the trusted certificates
+	 * @return the response, also for HTTP error status codes
+	 * @throws Exception
+	 *             if the truststore is empty, or the request cannot be sent or the response cannot be read
+	 */
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy,
 			final KeyStore trustedKeyStore) throws Exception {
 		if (trustedKeyStore.size() <= 0) {
@@ -95,11 +128,47 @@ public class HttpUtilities {
 		}
 	}
 
+	/**
+	 * Executes a request with a custom TLS certificate check.
+	 *
+	 * @param httpRequest
+	 *            the request
+	 * @param proxy
+	 *            the proxy, null for the system's default proxy, {@link Proxy#NO_PROXY} for a direct
+	 *            connection
+	 * @param trustManager
+	 *            the TLS certificate check, null for the system's default truststore
+	 * @param deactivateHostnameVerification
+	 *            true to accept server certificates issued for other host names (insecure)
+	 * @return the response, also for HTTP error status codes
+	 * @throws Exception
+	 *             if the request cannot be sent or the response cannot be read
+	 */
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy,
 			final TrustManager trustManager, final boolean deactivateHostnameVerification) throws Exception {
 		return executeHttpRequest(httpRequest, proxy, null, null, trustManager, deactivateHostnameVerification);
 	}
 
+	/**
+	 * Executes a request through an authenticating proxy with a custom TLS certificate check.
+	 *
+	 * @param httpRequest
+	 *            the request
+	 * @param proxy
+	 *            the proxy, null for the system's default proxy, {@link Proxy#NO_PROXY} for a direct
+	 *            connection
+	 * @param proxyUsername
+	 *            user name for the proxy, null for no proxy authentication
+	 * @param proxyPassword
+	 *            password for the proxy
+	 * @param trustManager
+	 *            the TLS certificate check, null for the system's default truststore
+	 * @param deactivateHostnameVerification
+	 *            true to accept server certificates issued for other host names (insecure)
+	 * @return the response, also for HTTP error status codes
+	 * @throws Exception
+	 *             if the request cannot be sent or the response cannot be read
+	 */
 	public static HttpResponse executeHttpRequest(final HttpRequest httpRequest, final Proxy proxy,
 			final String proxyUsername, final String proxyPassword, final TrustManager trustManager,
 			final boolean deactivateHostnameVerification) throws Exception {
@@ -111,6 +180,11 @@ public class HttpUtilities {
 			final boolean deactivateHostnameVerification, final int redirectCount, final boolean credentialsDroppedSoFar) throws Exception {
 		try {
 			String requestedUrl = httpRequest.getUrlWithProtocol();
+			if (requestedUrl.indexOf('#') >= 0) {
+				// The fragment is never sent to the server. Removed here, so that added parameters do not end up
+				// within the fragment (e.g. "page#top?a=1") and "#" before "?" cannot break the parameter split.
+				requestedUrl = requestedUrl.substring(0, requestedUrl.indexOf('#'));
+			}
 
 			// Check for already in URL included GET parameters
 			String parametersFromUrl;
@@ -584,6 +658,15 @@ public class HttpUtilities {
 		}
 	}
 
+	/**
+	 * Converts parameters to URL encoded form data like "a=1&amp;b=2".
+	 *
+	 * @param parameters
+	 *            the parameters, each name with its values
+	 * @param encoding
+	 *            the encoding, null for UTF-8
+	 * @return the parameter string, or null if the parameters are null
+	 */
 	public static String convertToParameterString(final Map<String, List<Object>> parameters, Charset encoding) {
 		if (parameters == null) {
 			return null;
@@ -609,14 +692,50 @@ public class HttpUtilities {
 		}
 	}
 
+	/**
+	 * URL encodes a text for form data (blanks become "+").
+	 *
+	 * @param data
+	 *            the text
+	 * @param charset
+	 *            the encoding
+	 * @return the encoded text
+	 */
 	public static String urlEncode(final String data, final Charset charset) {
 		return URLEncoder.encode(data, charset);
 	}
 
+	/**
+	 * Decodes URL encoded form data ("+" becomes a blank).
+	 *
+	 * @param data
+	 *            the encoded text
+	 * @param charset
+	 *            the encoding
+	 * @return the decoded text
+	 * @throws IllegalArgumentException
+	 *             if the text contains invalid escapes
+	 */
 	public static String urlDecode(final String data, final Charset charset) {
 		return URLDecoder.decode(data, charset);
 	}
 
+	/**
+	 * Sends a POST request without waiting for the answer, e.g. to trigger a server side action. TLS
+	 * certificates and host names are not checked (insecure), so only use it for data that needs no
+	 * protection.
+	 *
+	 * @param pingUrl
+	 *            the URL
+	 * @param proxy
+	 *            the proxy, null for a direct connection
+	 * @throws IOException
+	 *             if the connection fails
+	 * @throws NoSuchAlgorithmException
+	 *             if TLS is not available
+	 * @throws KeyManagementException
+	 *             if the TLS context cannot be initialized
+	 */
 	public static void pingUrlWithoutSslCheckNoWaitForAnswer(final String pingUrl, final Proxy proxy)
 			throws IOException, NoSuchAlgorithmException, KeyManagementException {
 		InputStream downloadStream = null;
@@ -627,7 +746,8 @@ public class HttpUtilities {
 				final TrustManager[] tms = new TrustManager[] { new X509TrustManager() {
 					@Override
 					public X509Certificate[] getAcceptedIssuers() {
-						return null;
+						// X509TrustManager contract requires a non-null array
+						return new X509Certificate[0];
 					}
 
 					@Override
@@ -647,6 +767,7 @@ public class HttpUtilities {
 				final HttpsURLConnection urlConnection = (HttpsURLConnection) URI.create(pingUrl).toURL()
 						.openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
 				urlConnection.setSSLSocketFactory(sslSocketFactory);
+				urlConnection.setHostnameVerifier(TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER);
 				urlConnection.setRequestMethod("POST");
 				urlConnection.setConnectTimeout(5000);
 				urlConnection.setReadTimeout(100);
@@ -676,6 +797,13 @@ public class HttpUtilities {
 		}
 	}
 
+	/**
+	 * Creates a "Content-Type" header for URL encoded form data.
+	 *
+	 * @param encoding
+	 *            the encoding to state as charset, null for none
+	 * @return the header with its value
+	 */
 	public static Map<String, List<String>> createHtmlFormMimetypeHeader(final Charset encoding) {
 		final Map<String, List<String>> returnMap = new HashMap<>();
 		final List<String> valueList = new ArrayList<>();
@@ -689,6 +817,19 @@ public class HttpUtilities {
 		return returnMap;
 	}
 
+	/**
+	 * Adds a query parameter to an URL, before a fragment.
+	 *
+	 * @param url
+	 *            the URL
+	 * @param parameterName
+	 *            the parameter name
+	 * @param parameterValue
+	 *            the value; arrays are joined with ","
+	 * @param encodingCharSet
+	 *            the encoding for URL encoding of name and value, null for no encoding
+	 * @return the new URL
+	 */
 	public static String addUrlParameter(final String url, final String parameterName, final Object parameterValue,
 			final Charset encodingCharSet) {
 		final StringBuilder escapedParameterNameAndValue = new StringBuilder();
@@ -730,6 +871,15 @@ public class HttpUtilities {
 		return addUrlParameter(url, escapedParameterNameAndValue.toString());
 	}
 
+	/**
+	 * Adds an already encoded query parameter to an URL, before a fragment.
+	 *
+	 * @param url
+	 *            the URL
+	 * @param escapedParameterNameAndValue
+	 *            the encoded parameter, e.g. "a=1"
+	 * @return the new URL
+	 */
 	public static String addUrlParameter(final String url, final String escapedParameterNameAndValue) {
 		final StringBuilder newUrl = new StringBuilder();
 		final int insertPosition = url.indexOf('#');
@@ -740,7 +890,8 @@ public class HttpUtilities {
 			newUrl.append(escapedParameterNameAndValue);
 		} else {
 			newUrl.append(url.substring(0, insertPosition));
-			newUrl.append(url.indexOf('?') <= -1 ? '?' : '&');
+			// Only a '?' before the fragment starts a query, a '?' within the fragment does not
+			newUrl.append(url.substring(0, insertPosition).indexOf('?') <= -1 ? '?' : '&');
 			newUrl.append(escapedParameterNameAndValue);
 			newUrl.append(url.substring(insertPosition));
 		}
@@ -748,6 +899,15 @@ public class HttpUtilities {
 		return newUrl.toString();
 	}
 
+	/**
+	 * Adds an already encoded matrix parameter (";name=value") to the path of an URL.
+	 *
+	 * @param url
+	 *            the URL
+	 * @param escapedParameterNameAndValue
+	 *            the encoded parameter, e.g. "a=1"
+	 * @return the new URL
+	 */
 	public static String addPathParameter(final String url, final String escapedParameterNameAndValue) {
 		final StringBuilder newUrl = new StringBuilder();
 		int insertPosition = url.indexOf('?');
@@ -769,11 +929,22 @@ public class HttpUtilities {
 		return newUrl.toString();
 	}
 
+	/**
+	 * Finds an unquoted parameter like "name=value" in HTML text. The value consists of word
+	 * characters only.
+	 *
+	 * @param htmlText
+	 *            the HTML text
+	 * @param parameterName
+	 *            the parameter name
+	 * @return the value, or null if not found
+	 */
 	public static String getPlainParameterFromHtml(final String htmlText, final String parameterName) {
 		if (NetworkUtilities.isBlank(htmlText)) {
 			return null;
 		} else {
-			final Pattern parameterPattern = Pattern.compile("\\W" + parameterName + "\\s*=(\\w*)\\W",
+			// The parameter name is quoted, so regex characters in it are matched literally
+			final Pattern parameterPattern = Pattern.compile("\\W" + Pattern.quote(parameterName) + "\\s*=(\\w*)\\W",
 					Pattern.MULTILINE);
 			final Matcher parameterMatcher = parameterPattern.matcher(htmlText);
 			if (parameterMatcher.find()) {
@@ -784,11 +955,22 @@ public class HttpUtilities {
 		}
 	}
 
+	/**
+	 * Finds a quoted parameter like name="value" in HTML text. The value consists of word characters
+	 * only.
+	 *
+	 * @param htmlText
+	 *            the HTML text
+	 * @param parameterName
+	 *            the parameter name
+	 * @return the value, or null if not found
+	 */
 	public static String getQuotedParameterFromHtml(final String htmlText, final String parameterName) {
 		if (NetworkUtilities.isBlank(htmlText)) {
 			return null;
 		} else {
-			final Pattern parameterPattern = Pattern.compile("\\W" + parameterName + "\\s*=\\s\"(\\w*)\"\\W",
+			// The parameter name is quoted, so regex characters in it are matched literally
+			final Pattern parameterPattern = Pattern.compile("\\W" + Pattern.quote(parameterName) + "\\s*=\\s*\"(\\w*)\"\\W",
 					Pattern.MULTILINE);
 			final Matcher parameterMatcher = parameterPattern.matcher(htmlText);
 			if (parameterMatcher.find()) {
@@ -799,6 +981,13 @@ public class HttpUtilities {
 		}
 	}
 
+	/**
+	 * Returns the standard text of an HTTP status code.
+	 *
+	 * @param httpStatusCode
+	 *            the status code
+	 * @return the text, e.g. "Not Found"
+	 */
 	public static String getHttpStatusText(final int httpStatusCode) {
 		switch (httpStatusCode) {
 			case HttpURLConnection.HTTP_OK:
@@ -830,7 +1019,7 @@ public class HttpUtilities {
 				return "Moved Permanently";
 			case HttpURLConnection.HTTP_MOVED_TEMP:
 				// 302
-				return "Temporary Redirect";
+				return "Found";
 			case HttpURLConnection.HTTP_SEE_OTHER:
 				// 303
 				return "See Other";
@@ -840,6 +1029,12 @@ public class HttpUtilities {
 			case HttpURLConnection.HTTP_USE_PROXY:
 				// 305
 				return "Use Proxy";
+			case HTTP_TEMPORARY_REDIRECT:
+				// 307
+				return "Temporary Redirect";
+			case HTTP_PERMANENT_REDIRECT:
+				// 308
+				return "Permanent Redirect";
 			case HttpURLConnection.HTTP_BAD_REQUEST:
 				// 400
 				return "Bad Request";
@@ -911,6 +1106,15 @@ public class HttpUtilities {
 		}
 	}
 
+	/**
+	 * Creates the value of an "Authorization" header for basic authentication.
+	 *
+	 * @param username
+	 *            the user name
+	 * @param password
+	 *            the password
+	 * @return the header value, e.g. "Basic dXNlcjpwYXNz"
+	 */
 	public static String createBasicAuthenticationHeaderValue(final String username, final String password) {
 		return "Basic "
 				+ Base64.getEncoder().encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
@@ -974,9 +1178,14 @@ public class HttpUtilities {
 		if (contentDisposition != null) {
 			final Matcher extendedMatcher = CONTENT_DISPOSITION_FILENAME_EXTENDED_PATTERN.matcher(contentDisposition);
 			if (extendedMatcher.find()) {
-				final String decoded = URLDecoder.decode(extendedMatcher.group(1).trim(), StandardCharsets.UTF_8);
-				if (NetworkUtilities.isNotBlank(decoded)) {
-					return sanitizeDownloadFileName(decoded);
+				try {
+					// RFC 5987 percent encoding has no '+' for blanks, so a literal '+' must be kept
+					final String decoded = URLDecoder.decode(extendedMatcher.group(1).trim().replace("+", "%2B"), StandardCharsets.UTF_8);
+					if (NetworkUtilities.isNotBlank(decoded)) {
+						return sanitizeDownloadFileName(decoded);
+					}
+				} catch (@SuppressWarnings("unused") final IllegalArgumentException e) {
+					// Malformed percent encoding: fall back to the plain filename parameter
 				}
 			}
 
@@ -998,7 +1207,8 @@ public class HttpUtilities {
 			final String lastSegment = path.substring(path.lastIndexOf('/') + 1);
 			if (NetworkUtilities.isNotBlank(lastSegment)) {
 				try {
-					return sanitizeDownloadFileName(URLDecoder.decode(lastSegment, StandardCharsets.UTF_8));
+					// A '+' in an URL path is a literal '+', not a blank
+					return sanitizeDownloadFileName(URLDecoder.decode(lastSegment.replace("+", "%2B"), StandardCharsets.UTF_8));
 				} catch (@SuppressWarnings("unused") final Exception e) {
 					return sanitizeDownloadFileName(lastSegment);
 				}
@@ -1019,8 +1229,14 @@ public class HttpUtilities {
 		if (lastSlash >= 0) {
 			fileName = fileName.substring(lastSlash + 1);
 		}
-		fileName = fileName.trim();
-		if (fileName.isEmpty() || ".".equals(fileName) || "..".equals(fileName)) {
+		// Characters not allowed in Windows file names, e.g. ':' would create an NTFS alternate data stream
+		final StringBuilder sanitizedFileName = new StringBuilder();
+		for (final char c : fileName.toCharArray()) {
+			sanitizedFileName.append(c < ' ' || "<>:\"|?*".indexOf(c) >= 0 ? '_' : c);
+		}
+		// Windows ignores trailing dots and blanks
+		fileName = sanitizedFileName.toString().trim().replaceAll("[. ]+$", "");
+		if (fileName.isEmpty()) {
 			return "download";
 		}
 		return fileName;
@@ -1091,6 +1307,13 @@ public class HttpUtilities {
 		}
 	}
 
+	/**
+	 * Generates a random boundary for multipart data.
+	 *
+	 * @return a boundary of 32 letters and digits
+	 * @throws Exception
+	 *             if no secure random generator is available
+	 */
 	public static String generateBoundary() throws Exception {
 		final char[] availableChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".toCharArray();
 		final Random random = new SecureRandom();
@@ -1101,6 +1324,20 @@ public class HttpUtilities {
 		return new String(boundary);
 	}
 
+	/**
+	 * Returns the TLS certificate of a server without checking it, preferring a certificate with
+	 * subject alternative names (usually the server's own certificate).
+	 *
+	 * @param hostnameOrIp
+	 *            the host
+	 * @param port
+	 *            the port
+	 * @param proxy
+	 *            the proxy, null for a direct connection
+	 * @return the certificate, or null if the server sent none
+	 * @throws Exception
+	 *             if the connection fails
+	 */
 	public static X509Certificate getServerTlsCertificate(final String hostnameOrIp, final int port, final Proxy proxy)
 			throws Exception {
 		final HttpsURLConnection urlConnection = (HttpsURLConnection) URI.create("https://" + hostnameOrIp + ":" + port)
@@ -1135,19 +1372,47 @@ public class HttpUtilities {
 		return null;
 	}
 
+	/**
+	 * Creates an HTTP proxy from a text like "proxy.example.com:3128", "http://[::1]:3128/" or
+	 * "DIRECT". The port defaults to 8080.
+	 *
+	 * @param proxyString
+	 *            the proxy text, null, empty or "DIRECT" for no proxy
+	 * @return the proxy, {@link Proxy#NO_PROXY} for no proxy
+	 * @throws NumberFormatException
+	 *             if the port is no number
+	 * @throws IllegalArgumentException
+	 *             if a bracketed IPv6 address is not closed
+	 */
 	public static Proxy getProxyFromString(String proxyString) {
-		if (proxyString == null || proxyString.trim().length() == 0 || "DIRECT".equalsIgnoreCase(proxyString)) {
+		if (proxyString == null || proxyString.trim().length() == 0 || "DIRECT".equalsIgnoreCase(proxyString.trim())) {
 			return Proxy.NO_PROXY;
 		} else {
+			proxyString = proxyString.trim();
 			if (proxyString.toLowerCase(Locale.ROOT).startsWith("http://")) {
 				proxyString = proxyString.substring(7);
 			} else if (proxyString.toLowerCase(Locale.ROOT).startsWith("https://")) {
 				proxyString = proxyString.substring(8);
 			}
 
+			// A trailing path like in "http://proxy:3128/" is no part of the address
+			if (proxyString.indexOf('/') >= 0) {
+				proxyString = proxyString.substring(0, proxyString.indexOf('/'));
+			}
+
 			String proxyHost = proxyString;
 			String proxyPort = "8080";
-			if (proxyHost.contains(":")) {
+			if (proxyHost.startsWith("[")) {
+				// Bracketed IPv6 address like "[::1]:3128"
+				final int closingBracketIndex = proxyHost.indexOf(']');
+				if (closingBracketIndex < 0) {
+					throw new IllegalArgumentException("Invalid proxy: missing closing ']' for IPv6 address: " + proxyString);
+				}
+				if (proxyHost.length() > closingBracketIndex + 1 && proxyHost.charAt(closingBracketIndex + 1) == ':') {
+					proxyPort = proxyHost.substring(closingBracketIndex + 2);
+				}
+				proxyHost = proxyHost.substring(1, closingBracketIndex);
+			} else if (proxyHost.contains(":")) {
 				proxyPort = proxyHost.substring(proxyHost.indexOf(":") + 1);
 				proxyHost = proxyHost.substring(0, proxyHost.indexOf(":"));
 			}
@@ -1155,6 +1420,14 @@ public class HttpUtilities {
 		}
 	}
 
+	/**
+	 * Returns the IP address of the server of a connection: the "X-Real-IP" or first
+	 * "X-Forwarded-For" response header, if present, else the resolved host of the URL.
+	 *
+	 * @param connection
+	 *            the connection
+	 * @return the IP address, or null if it cannot be determined
+	 */
 	public static String getIpAddress(final HttpURLConnection connection) {
 		try {
 			String ip = connection.getHeaderField("X-Real-IP");

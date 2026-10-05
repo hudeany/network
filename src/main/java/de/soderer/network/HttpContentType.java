@@ -2,6 +2,9 @@ package de.soderer.network;
 
 import java.util.Locale;
 
+/**
+ * Common content types (MIME types) of HTTP data.
+ */
 public enum HttpContentType {
 	/** application/x-www-form-urlencoded */
 	HtmlForm("application/x-www-form-urlencoded"),
@@ -45,26 +48,56 @@ public enum HttpContentType {
 	 * Used to tell browsers to display data rather then download it to a file*/
 	TextXml("text/xml");
 
+	/**
+	 * The MIME type.
+	 */
 	private final String stringRepresentation;
 
+	/**
+	 * Creates a content type.
+	 *
+	 * @param stringRepresentation
+	 *            the MIME type
+	 */
 	HttpContentType(final String stringRepresentation) {
 		this.stringRepresentation = stringRepresentation;
 	}
 
+	/**
+	 * Returns the content type of a "Content-Type" header value, ignoring case and parameters like
+	 * "; charset=UTF-8".
+	 *
+	 * @param httpContentTypeString
+	 *            the header value, e.g. "application/json; charset=UTF-8"
+	 * @return the content type
+	 * @throws Exception
+	 *             if the value is null or the MIME type is unknown
+	 */
 	public static HttpContentType getHttpContentTypeByName(final String httpContentTypeString) throws Exception {
-		for (final HttpContentType httpContentType : HttpContentType.values()) {
-			if (httpContentType.stringRepresentation.equalsIgnoreCase(httpContentTypeString)
-					|| httpContentTypeString.toLowerCase(Locale.ROOT).startsWith(httpContentType.stringRepresentation + ";")) {
-				return httpContentType;
+		if (httpContentTypeString != null) {
+			// Parameters like "; charset=UTF-8" are ignored, also with whitespace before the ';'
+			final String mimeType = httpContentTypeString.split(";", 2)[0].trim();
+			for (final HttpContentType httpContentType : HttpContentType.values()) {
+				if (httpContentType.stringRepresentation.equalsIgnoreCase(mimeType)) {
+					return httpContentType;
+				}
 			}
 		}
 		throw new Exception("Unknown HttpContentType: '" + httpContentTypeString + "'");
 	}
 
+	/**
+	 * Returns the MIME type.
+	 *
+	 * @return the MIME type, e.g. "application/json"
+	 */
 	public String getStringRepresentation() {
 		return stringRepresentation;
 	}
 
+	/**
+	 * Returns the MIME type.
+	 */
 	@Override
 	public String toString() {
 		return stringRepresentation;

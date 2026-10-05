@@ -32,6 +32,14 @@ import javax.net.ssl.X509TrustManager;
 public class PemFileTrustManager implements X509TrustManager {
 	private final X509TrustManager trustManager;
 
+	/**
+	 * Creates a trust manager that only trusts the certificate of a PEM file.
+	 *
+	 * @param pemFile
+	 *            the PEM file with one certificate
+	 * @throws Exception
+	 *             if the certificate cannot be read
+	 */
 	public PemFileTrustManager(final File pemFile) throws Exception {
 		final CertificateFactory cf = CertificateFactory.getInstance("X.509");
 		X509Certificate cert;

@@ -42,6 +42,14 @@ public class SavingToPemFileTrustManager implements X509TrustManager {
 	private final List<String> previouslyRecordedFingerprints;
 	private X509Certificate serverCertificate;
 
+	/**
+	 * Creates a trust-on-first-use trust manager, see the class description.
+	 *
+	 * @param pemFile
+	 *            the PEM file to record to and check against
+	 * @throws Exception
+	 *             if an existing PEM file cannot be read
+	 */
 	public SavingToPemFileTrustManager(final File pemFile) throws Exception {
 		this.pemFile = pemFile;
 		previouslyRecordedFingerprints = readFingerprints(pemFile);
@@ -65,6 +73,11 @@ public class SavingToPemFileTrustManager implements X509TrustManager {
 		return Base64.getEncoder().encodeToString(digest.digest(encodedCertificate));
 	}
 
+	/**
+	 * Returns the server certificate of the last accepted connection.
+	 *
+	 * @return the certificate, or null if no connection was accepted yet
+	 */
 	public X509Certificate getServerCertificate() {
 		return serverCertificate;
 	}

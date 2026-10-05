@@ -17,7 +17,7 @@ import javax.net.ssl.X509TrustManager;
 /**
  * Usage example:
  * <pre>
- * TrustManager[] trustManagers = new TrustManager[] { new SavingToTruststoreTrustManager(new File("server-cert.jks", "changeit".toCharArray())) };
+ * TrustManager[] trustManagers = new TrustManager[] { new SavingToTruststoreTrustManager(new File("server-cert.jks"), "changeit".toCharArray()) };
  *
  * SSLContext sslContext = SSLContext.getInstance("TLS");
  * sslContext.init(null, trustManagers, new SecureRandom());
@@ -47,6 +47,16 @@ public class SavingToTruststoreTrustManager implements X509TrustManager {
 	private final KeyStore keyStore;
 	private final Set<String> previouslyRecordedFingerprints = new HashSet<>();
 
+	/**
+	 * Creates a trust-on-first-use trust manager, see the class description.
+	 *
+	 * @param trustStoreFile
+	 *            the truststore file to record to and check against
+	 * @param trustStorePassword
+	 *            the truststore password, null for none
+	 * @throws Exception
+	 *             if an existing truststore cannot be read
+	 */
 	public SavingToTruststoreTrustManager(final File trustStoreFile, final char[] trustStorePassword) throws Exception {
 		this.trustStoreFile = trustStoreFile;
 		this.trustStorePassword = trustStorePassword;
@@ -74,6 +84,11 @@ public class SavingToTruststoreTrustManager implements X509TrustManager {
 		return Base64.getEncoder().encodeToString(digest.digest(encodedCertificate));
 	}
 
+	/**
+	 * Returns the server certificate of the last accepted connection.
+	 *
+	 * @return the certificate, or null if no connection was accepted yet
+	 */
 	public X509Certificate getServerCertificate() {
 		return serverCertificate;
 	}

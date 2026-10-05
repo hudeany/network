@@ -20,26 +20,64 @@ import java.util.function.Function;
  * remove an entry that is actually stored under the converted key "foo", even though
  * {@code caseInsensitiveLinkedMap.remove("FOO")} works correctly. Iterating via {@link java.util.Iterator}
  * and calling {@code Iterator.remove()} is unaffected, since that always operates on the key as already stored.
+ *
+ * @param <K>
+ *            the key type
+ * @param <V>
+ *            the value type
  */
 public abstract class AbstractLinkedHashMap<K, V> extends LinkedHashMap<K, V> {
 	private static final long serialVersionUID = -7227298515931195921L;
 
+	/**
+	 * Creates an empty map.
+	 */
 	public AbstractLinkedHashMap() {
 		super();
 	}
 
+	/**
+	 * Creates an empty map.
+	 *
+	 * @param initialCapacity
+	 *            the initial capacity
+	 * @param loadFactor
+	 *            the load factor
+	 * @param accessOrder
+	 *            true for access order, false for insertion order
+	 */
 	public AbstractLinkedHashMap(final int initialCapacity, final float loadFactor, final boolean accessOrder) {
 		super(initialCapacity, loadFactor, accessOrder);
 	}
 
+	/**
+	 * Creates an empty map.
+	 *
+	 * @param initialCapacity
+	 *            the initial capacity
+	 * @param loadFactor
+	 *            the load factor
+	 */
 	public AbstractLinkedHashMap(final int initialCapacity, final float loadFactor) {
 		super(initialCapacity, loadFactor);
 	}
 
+	/**
+	 * Creates an empty map.
+	 *
+	 * @param initialCapacity
+	 *            the initial capacity
+	 */
 	public AbstractLinkedHashMap(final int initialCapacity) {
 		super(initialCapacity);
 	}
 
+	/**
+	 * Creates a map with the entries of another map, converting their keys.
+	 *
+	 * @param map
+	 *            the entries to copy
+	 */
 	public AbstractLinkedHashMap(final Map<? extends K, ? extends V> map) {
 		super(map.size());
 		putAll(map);
@@ -139,5 +177,12 @@ public abstract class AbstractLinkedHashMap<K, V> extends LinkedHashMap<K, V> {
 		return super.compute(convertKey(key), remappingFunction);
 	}
 
+	/**
+	 * Converts a key before it is stored or looked up.
+	 *
+	 * @param key
+	 *            the key as given, may be of any type
+	 * @return the converted key
+	 */
 	protected abstract K convertKey(Object key);
 }

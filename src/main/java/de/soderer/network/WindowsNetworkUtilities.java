@@ -6,11 +6,25 @@ import java.nio.charset.Charset;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Network information specific to Windows systems.
+ */
 public class WindowsNetworkUtilities {
+	/**
+	 * Utility class, not to be instantiated.
+	 */
+	private WindowsNetworkUtilities() {
+	}
+
 	private static final String WINDOWS_TCPIP_PARAMETERS_REGISTRY_KEY = "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters";
 	private static final long REG_QUERY_TIMEOUT_SECONDS = 5;
 	private static volatile String PRIMARY_DNS_SUFFIX = null;
 
+	/**
+	 * Returns the primary DNS suffix of this Windows computer, read from the registry once and cached.
+	 *
+	 * @return the DNS suffix, or an empty string on other systems or if none is set
+	 */
 	public static String getPrimaryDnsSuffix() {
 		if (PRIMARY_DNS_SUFFIX == null) {
 			synchronized (WindowsNetworkUtilities.class) {
@@ -23,6 +37,9 @@ public class WindowsNetworkUtilities {
 		return PRIMARY_DNS_SUFFIX;
 	}
 
+	/**
+	 * Clears the cached primary DNS suffix, so it is read again on the next call.
+	 */
 	public static void clearPrimaryDnsSuffixCache() {
 		synchronized (WindowsNetworkUtilities.class) {
 			PRIMARY_DNS_SUFFIX = null;
