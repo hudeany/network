@@ -17,6 +17,7 @@ import de.soderer.network.NetworkUtilities;
 /**
  * Regression tests for bugs found during the Javadoc and bug review of the network library.
  */
+@SuppressWarnings("static-method")
 public class NetworkRegressionTest {
 	private static HttpRequest parse(final String requestData) throws IOException {
 		return HttpRequest.parseHttpRequestData(new ByteArrayInputStream(requestData.getBytes(StandardCharsets.ISO_8859_1)), 2000);
