@@ -1,7 +1,5 @@
 package de.soderer.network;
 
-import java.util.Locale;
-
 /**
  * Common content types (MIME types) of HTTP data.
  */
