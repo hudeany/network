@@ -10,3 +10,4 @@ replay_pid*
 /build/
 /build.version
 /lib_test/
+/lib_coverage/
