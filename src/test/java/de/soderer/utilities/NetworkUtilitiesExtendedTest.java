@@ -178,9 +178,9 @@ public class NetworkUtilitiesExtendedTest {
 
 	@Test
 	public void testWakeOnLanPing() {
-		assertFalse(NetworkUtilities.wakeOnLanPing("invalid"));
+		assertFalse(NetworkUtilities.wakeOnLan("invalid"));
 		// Sending a broadcast may be forbidden in restricted environments, so only the call itself is checked
-		NetworkUtilities.wakeOnLanPing("00:1A:2B:3C:4D:5E");
+		NetworkUtilities.wakeOnLan("00:1A:2B:3C:4D:5E");
 	}
 
 	@Test

@@ -9,6 +9,7 @@ import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
 import java.net.Proxy;
 import java.net.Socket;
@@ -16,6 +17,7 @@ import java.net.SocketException;
 import java.net.URI;
 import java.net.URL;
 import java.net.UnknownHostException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.security.SecureRandom;
@@ -26,8 +28,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -95,6 +100,16 @@ public class NetworkUtilities {
 	private static final Pattern USER_PATTERN = Pattern.compile(USER_REGEX);
 
 	private static final Pattern DOMAIN_NAME_PATTERN = Pattern.compile(DOMAIN_NAME_REGEX);
+
+	/** Default UDP port for Wake-on-LAN magic packets (discard service). */
+	public static final int WAKE_ON_LAN_DEFAULT_PORT = 9;
+
+	private static final Pattern MAC_ADDRESS_WITHOUT_SEPARATOR_PATTERN = Pattern.compile("^([0-9A-Fa-f]{12}|[0-9A-Fa-f]{4}\\.[0-9A-Fa-f]{4}\\.[0-9A-Fa-f]{4})$");
+
+	/** Allowed characters of a host for the ping command: host names, IPv4 and IPv6 (with zone index). */
+	private static final Pattern PING_HOST_PATTERN = Pattern.compile("^[A-Za-z0-9.:%_\\-]+$");
+
+	private static volatile Charset windowsConsoleCharset = null;
 
 	/**
 	 * Tests whether a TCP connection to a host can be built up, with a timeout of 2 seconds.
@@ -286,7 +301,8 @@ public class NetworkUtilities {
 	}
 
 	/**
-	 * Parses a MAC address like "00:1A:2B:3C:4D:5E", with ":", "-" or blank as separator.
+	 * Parses a MAC address like "00:1A:2B:3C:4D:5E", with ":", "-" or blank as separator, or without
+	 * separator ("001A2B3C4D5E") or in Cisco notation ("001a.2b3c.4d5e").
 	 *
 	 * @param macAddress
 	 *            the MAC address
@@ -295,11 +311,22 @@ public class NetworkUtilities {
 	 *             if the MAC address is invalid
 	 */
 	public static byte[] getMacAddressBytes(final String macAddress) throws IllegalArgumentException {
-		if (isEmpty(macAddress)) {
+		if (isBlank(macAddress)) {
 			throw new IllegalArgumentException("Invalid MAC address");
 		}
 
-		final String[] hexParts = macAddress.split("(\\:|\\-| )");
+		final String trimmedMacAddress = macAddress.trim();
+		if (MAC_ADDRESS_WITHOUT_SEPARATOR_PATTERN.matcher(trimmedMacAddress).matches()) {
+			// "001A2B3C4D5E" or Cisco notation "001a.2b3c.4d5e"
+			final String hexDigits = trimmedMacAddress.replace(".", "");
+			final byte[] bytes = new byte[6];
+			for (int i = 0; i < 6; i++) {
+				bytes[i] = (byte) Integer.parseInt(hexDigits.substring(i * 2, i * 2 + 2), 16);
+			}
+			return bytes;
+		}
+
+		final String[] hexParts = trimmedMacAddress.split("(\\:|\\-| )");
 		if (hexParts.length != 6) {
 			throw new IllegalArgumentException("Invalid MAC address");
 		}
@@ -320,29 +347,254 @@ public class NetworkUtilities {
 	}
 
 	/**
-	 * Sends a Wake-on-LAN "magic packet" for a MAC address as UDP broadcast on port 9.
+	 * Sends a Wake-on-LAN "magic packet" for a MAC address as UDP broadcast on port 9 to
+	 * 255.255.255.255 and the broadcast addresses of all local IPv4 networks.
 	 *
 	 * @param macAddress
 	 *            the MAC address of the computer to wake up
 	 * @return true, if the packet was sent
 	 */
-	public static boolean wakeOnLanPing(final String macAddress) {
+	public static boolean wakeOnLan(final String macAddress) {
 		try {
-			final byte[] macBytes = getMacAddressBytes(macAddress);
-			final byte[] bytes = new byte[6 + 16 * macBytes.length];
-			Arrays.fill(bytes, 0, 6, (byte) 0xFF);
-			for (int i = 6; i < bytes.length; i += macBytes.length) {
-				System.arraycopy(macBytes, 0, bytes, i, macBytes.length);
-			}
-
-			try (DatagramSocket socket = new DatagramSocket()) {
-				socket.send(new DatagramPacket(bytes, bytes.length, InetAddress.getByName("255.255.255.255"), 9));
-			}
-
+			wakeOnLan(macAddress, null, WAKE_ON_LAN_DEFAULT_PORT);
 			return true;
 		} catch (@SuppressWarnings("unused") final Exception e) {
 			return false;
 		}
+	}
+
+	/**
+	 * Sends a Wake-on-LAN "magic packet" (6 x 0xFF followed by 16 repetitions of the MAC address) via UDP.
+	 *
+	 * <p>
+	 * There is no answer to a magic packet, so a successful call only means that the packet was sent.
+	 * A broadcast only reaches the local network segment, it is not forwarded by routers.
+	 * </p>
+	 *
+	 * @param macAddress
+	 *            the MAC address of the computer to wake up, see {@link #getMacAddressBytes(String)}
+	 * @param targetAddress
+	 *            broadcast address (e.g. "192.168.1.255") or host to send the packet to. If blank, the
+	 *            packet is sent to 255.255.255.255 and to the broadcast address of every local IPv4
+	 *            network, because the limited broadcast 255.255.255.255 is only sent out on the interface
+	 *            of the default route on some operating systems
+	 * @param port
+	 *            UDP port, usually 9 (discard) or 7 (echo)
+	 * @return the addresses ("address:port") the packet was sent to
+	 * @throws IllegalArgumentException
+	 *             if the MAC address or the port is invalid
+	 * @throws IOException
+	 *             if the packet could not be sent to any of the addresses
+	 */
+	public static List<String> wakeOnLan(final String macAddress, final String targetAddress, final int port) throws IOException {
+		if (port < 1 || port > 65535) {
+			throw new IllegalArgumentException("Invalid port: " + port);
+		}
+
+		final byte[] macBytes = getMacAddressBytes(macAddress);
+		final byte[] packetBytes = new byte[6 + 16 * macBytes.length];
+		Arrays.fill(packetBytes, 0, 6, (byte) 0xFF);
+		for (int i = 6; i < packetBytes.length; i += macBytes.length) {
+			System.arraycopy(macBytes, 0, packetBytes, i, macBytes.length);
+		}
+
+		final Set<InetAddress> targetAddresses = new LinkedHashSet<>();
+		if (isBlank(targetAddress)) {
+			targetAddresses.add(InetAddress.getByName("255.255.255.255"));
+			targetAddresses.addAll(getLocalBroadcastAddresses());
+		} else {
+			targetAddresses.add(InetAddress.getByName(targetAddress.trim()));
+		}
+
+		final List<String> sentTo = new ArrayList<>();
+		IOException lastError = null;
+		try (DatagramSocket socket = new DatagramSocket()) {
+			// Without SO_BROADCAST sending to a broadcast address fails, e.g. with "Permission denied" on Linux
+			socket.setBroadcast(true);
+			for (final InetAddress address : targetAddresses) {
+				try {
+					socket.send(new DatagramPacket(packetBytes, packetBytes.length, address, port));
+					sentTo.add(address.getHostAddress() + ":" + port);
+				} catch (final IOException e) {
+					// e.g. an interface that went down in the meantime, the other addresses are still tried
+					lastError = e;
+				}
+			}
+		}
+
+		if (sentTo.isEmpty()) {
+			throw lastError != null ? lastError : new IOException("No target address for Wake-on-LAN packet");
+		}
+		return sentTo;
+	}
+
+	/**
+	 * Returns the broadcast addresses of all IPv4 networks of the local network interfaces that are up
+	 * (loopback excluded).
+	 *
+	 * @return the broadcast addresses, empty if none could be determined
+	 */
+	public static List<InetAddress> getLocalBroadcastAddresses() {
+		final List<InetAddress> broadcastAddresses = new ArrayList<>();
+		try {
+			for (final NetworkInterface networkInterface : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+				if (networkInterface.isUp() && !networkInterface.isLoopback()) {
+					for (final InterfaceAddress interfaceAddress : networkInterface.getInterfaceAddresses()) {
+						final InetAddress broadcastAddress = interfaceAddress.getBroadcast();
+						if (broadcastAddress != null && !broadcastAddresses.contains(broadcastAddress)) {
+							broadcastAddresses.add(broadcastAddress);
+						}
+					}
+				}
+			}
+		} catch (@SuppressWarnings("unused") final SocketException e) {
+			// No interface information available, the caller still has the limited broadcast address
+		}
+		return broadcastAddresses;
+	}
+
+	/**
+	 * Result of {@link #icmpPing(String, int, int)}.
+	 *
+	 * @param reachable
+	 *            true, if at least one echo reply was received
+	 * @param exitCode
+	 *            exit code of the ping command, -1 if it had to be terminated because of a timeout
+	 * @param output
+	 *            the console output of the ping command
+	 */
+	public record PingResult(boolean reachable, int exitCode, String output) {
+	}
+
+	/**
+	 * Sends ICMP echo requests by the operating system's "ping" command.
+	 *
+	 * <p>
+	 * {@link InetAddress#isReachable(int)} only sends ICMP with raw socket privileges (root or CAP_NET_RAW
+	 * on Linux), otherwise it tries a TCP connection to port 7, which is closed on nearly every host. The
+	 * system command has the needed privileges on Linux, macOS and Windows.
+	 * </p>
+	 *
+	 * @param host
+	 *            host name or IP address (IPv6 with or without brackets)
+	 * @param count
+	 *            number of echo requests, at least 1
+	 * @param timeoutSeconds
+	 *            timeout per echo request in seconds, at least 1
+	 * @return the result with the console output of the command
+	 * @throws IllegalArgumentException
+	 *             if the host contains characters that are not allowed in a host name or IP address
+	 * @throws IOException
+	 *             if the ping command cannot be executed
+	 * @throws InterruptedException
+	 *             if the current thread is interrupted while waiting for the command
+	 */
+	public static PingResult icmpPing(final String host, final int count, final int timeoutSeconds) throws IOException, InterruptedException {
+		String effectiveHost = host == null ? "" : host.trim();
+		if (effectiveHost.startsWith("[") && effectiveHost.endsWith("]")) {
+			effectiveHost = effectiveHost.substring(1, effectiveHost.length() - 1);
+		}
+		// The host is passed as a separate argument (no shell), but must not be taken as a command option like "-f"
+		if (effectiveHost.isEmpty() || effectiveHost.startsWith("-") || !PING_HOST_PATTERN.matcher(effectiveHost).matches()) {
+			throw new IllegalArgumentException("Invalid host for ping: '" + host + "'");
+		}
+		final int effectiveCount = Math.max(count, 1);
+		final int effectiveTimeoutSeconds = Math.max(timeoutSeconds, 1);
+
+		final String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+		final boolean isWindows = osName.contains("win");
+		final List<String> command = new ArrayList<>();
+		command.add("ping");
+		if (isWindows) {
+			command.addAll(List.of("-n", String.valueOf(effectiveCount), "-w", String.valueOf(effectiveTimeoutSeconds * 1000)));
+		} else if (osName.contains("mac")) {
+			// macOS expects the reply timeout in milliseconds
+			command.addAll(List.of("-c", String.valueOf(effectiveCount), "-W", String.valueOf(effectiveTimeoutSeconds * 1000)));
+		} else {
+			command.addAll(List.of("-c", String.valueOf(effectiveCount), "-W", String.valueOf(effectiveTimeoutSeconds)));
+		}
+		command.add(effectiveHost);
+
+		final Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+
+		// Read in a separate thread, so the timeout below also works when the command hangs without output
+		final ByteArrayOutputStream outputBuffer = new ByteArrayOutputStream();
+		final Thread outputReader = new Thread(() -> {
+			try (InputStream inputStream = process.getInputStream()) {
+				inputStream.transferTo(outputBuffer);
+			} catch (@SuppressWarnings("unused") final IOException e) {
+				// Stream closed by destroyForcibly(), the output read so far is kept
+			}
+		}, "PingOutputReader");
+		outputReader.setDaemon(true);
+		outputReader.start();
+
+		final boolean finished = process.waitFor(effectiveCount * (effectiveTimeoutSeconds + 1L) + 5, TimeUnit.SECONDS);
+		if (!finished) {
+			// Child processes first, they would keep the output pipe open otherwise
+			process.descendants().forEach(ProcessHandle::destroyForcibly);
+			process.destroyForcibly();
+		}
+		outputReader.join(2000);
+
+		final String output = new String(outputBuffer.toByteArray(), getPingOutputCharset(isWindows));
+
+		if (!finished) {
+			return new PingResult(false, -1, output);
+		} else {
+			final int exitCode = process.exitValue();
+			// Windows ping also returns 0 for "Destination host unreachable" answers of a router,
+			// only a real echo reply contains "TTL="
+			final boolean reachable = exitCode == 0 && (!isWindows || output.toUpperCase(Locale.ROOT).contains("TTL="));
+			return new PingResult(reachable, exitCode, output);
+		}
+	}
+
+	/**
+	 * Returns the charset of the ping command's output: the console code page on Windows (e.g. CP850
+	 * on German systems, which differs from the ANSI code page), otherwise the native encoding.
+	 */
+	private static Charset getPingOutputCharset(final boolean isWindows) {
+		if (isWindows) {
+			if (windowsConsoleCharset == null) {
+				windowsConsoleCharset = detectWindowsConsoleCharset();
+			}
+			return windowsConsoleCharset;
+		} else {
+			try {
+				final String nativeEncoding = System.getProperty("native.encoding");
+				return nativeEncoding != null ? Charset.forName(nativeEncoding) : Charset.defaultCharset();
+			} catch (@SuppressWarnings("unused") final Exception e) {
+				return Charset.defaultCharset();
+			}
+		}
+	}
+
+	/**
+	 * Detects the Windows console code page by "chcp" (output like "Active code page: 850").
+	 */
+	private static Charset detectWindowsConsoleCharset() {
+		try {
+			final Process process = new ProcessBuilder("cmd", "/c", "chcp").redirectErrorStream(true).start();
+			final String output;
+			try (InputStream inputStream = process.getInputStream()) {
+				output = new String(inputStream.readAllBytes(), StandardCharsets.US_ASCII);
+			}
+			process.waitFor(5, TimeUnit.SECONDS);
+			final Matcher matcher = Pattern.compile("(\\d+)").matcher(output);
+			String codePage = null;
+			while (matcher.find()) {
+				codePage = matcher.group(1);
+			}
+			if ("65001".equals(codePage)) {
+				return StandardCharsets.UTF_8;
+			} else if (codePage != null) {
+				return Charset.forName("CP" + codePage);
+			}
+		} catch (@SuppressWarnings("unused") final Exception e) {
+			// Fall back to the default charset below
+		}
+		return Charset.defaultCharset();
 	}
 
 	/**
