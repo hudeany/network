@@ -1,4 +1,4 @@
-package de.soderer.utilities;
+package de.soderer.network;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

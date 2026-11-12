@@ -1,4 +1,4 @@
-package de.soderer.utilities;
+package de.soderer.network;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -14,10 +14,6 @@ import org.junit.jupiter.api.Test;
 
 import com.sun.net.httpserver.HttpsServer;
 
-import de.soderer.network.HttpMethod;
-import de.soderer.network.HttpRequest;
-import de.soderer.network.HttpResponse;
-import de.soderer.network.HttpUtilities;
 import de.soderer.network.trustmanager.PemFileTrustManager;
 import de.soderer.network.trustmanager.TrustManagerUtilities;
 

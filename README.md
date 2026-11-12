@@ -7,6 +7,7 @@ A lightweight Java library for **HTTP requests**, **TLS certificate checks** and
 ## Features
 
 - **HTTP client**: all methods, URL and form parameters, JSON or other bodies, cookies, headers, basic authentication
+- **HTTP/1.1 and HTTP/2**: selectable per request, with automatic fallback to HTTP/1.1; the response tells which version was actually used
 - **File upload and download**: multipart uploads, downloads to a stream, a file or a directory (file name taken from the response)
 - **Redirects**: optional, with hop limit; credentials are never forwarded to other origins
 - **Timeouts** for connecting and for reading, set separately
@@ -25,6 +26,7 @@ A lightweight Java library for **HTTP requests**, **TLS certificate checks** and
   - [File upload](#file-upload)
   - [File download](#file-download)
   - [Proxy](#proxy)
+  - [HTTP/2](#http2)
 - [TLS certificate checks](#tls-certificate-checks)
 - [Parse HTTP requests on server side](#parse-http-requests-on-server-side)
 - [Network tools](#network-tools)
@@ -142,6 +144,38 @@ HttpUtilities.executeHttpRequest(request, proxy, "proxyUser", "proxyPassword", n
 ```
 
 Without a proxy parameter, the JVM's default proxy settings are used. Pass `Proxy.NO_PROXY` for a direct connection.
+
+### HTTP/2
+
+Requests use HTTP/1.1 by default. HTTP/2 is requested per request with `setHttpVersion`. If the server does not support HTTP/2, the request falls back to HTTP/1.1 automatically. `getHttpVersion()` of the response tells which version was actually used.
+
+```java
+final HttpRequest request = new HttpRequest(HttpMethod.GET, "https://example.com/api/users")
+	.setHttpVersion(HttpVersion.HTTP_2);
+
+final HttpResponse response = HttpUtilities.executeHttpRequest(request);
+
+System.out.println(response.getHttpVersion()); // HTTP_2, or HTTP_1_1 after a fallback
+```
+
+| Requested | Server | `response.getHttpVersion()` |
+|---|---|---|
+| `HTTP_1_1` (default) | any | `HTTP_1_1`, or `HTTP_1_0` for a very old server |
+| `HTTP_2` | supports HTTP/2 | `HTTP_2` |
+| `HTTP_2` | only HTTP/1.1 | `HTTP_1_1` |
+
+For `https://` the version is negotiated during the TLS handshake (ALPN), for `http://` an upgrade to cleartext HTTP/2 (h2c) is tried. Redirected requests use the same requested version. `HTTP_1_0` cannot be requested, it is only reported for servers answering with HTTP/1.0.
+
+HTTP/1.1 requests are sent via `HttpURLConnection`, HTTP/2 requests via the JDK's `java.net.http.HttpClient`. Everything else works the same for both, including proxies, TLS checks, redirects and downloads, with these differences for HTTP/2:
+
+- **Module path**: if your application uses `module-info.java`, it needs `requires java.net.http;`
+- **SOCKS proxies** are not supported, only HTTP proxies
+- **Proxy authentication** for `https://` URLs uses Basic authentication, which the JDK blocks by default for tunnels. Start the JVM with `-Djdk.http.auth.tunneling.disabledSchemes=` to allow it
+- **Read timeout**: applies until the response headers are received, not between later data packets of the body
+- **`HttpRequest.cancel()`** has no effect
+- **Status message**: HTTP/2 has no reason phrase, so `getHttpCodeMessage()` returns the standard text, e.g. "Not Found"
+- **Header names** of the response are lower case. `getHeaders()` is case insensitive, so `get("Content-Type")` still works
+- **Connection-specific request headers** (`Connection`, `Keep-Alive`, `Upgrade`, `Transfer-Encoding`, ...) are not allowed in HTTP/2 and are not sent; `Content-Length` and `Host` are set automatically
 
 ## TLS certificate checks
 

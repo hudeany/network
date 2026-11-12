@@ -1,4 +1,4 @@
-package de.soderer.utilities;
+package de.soderer.network;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -14,10 +14,6 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
-import de.soderer.network.HttpContentType;
-import de.soderer.network.HttpMethod;
-import de.soderer.network.HttpResponse;
-import de.soderer.network.WindowsNetworkUtilities;
 import de.soderer.network.utilities.CaseInsensitiveLinkedMap;
 
 /**

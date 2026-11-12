@@ -1,4 +1,4 @@
-package de.soderer.utilities;
+package de.soderer.network;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,9 +11,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
-
-import de.soderer.network.HttpMethod;
-import de.soderer.network.HttpRequest;
 
 @SuppressWarnings("static-method")
 public class HttpRequestParsingTest {

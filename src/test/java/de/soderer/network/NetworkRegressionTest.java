@@ -1,4 +1,4 @@
-package de.soderer.utilities;
+package de.soderer.network;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -8,11 +8,6 @@ import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import de.soderer.network.HttpContentType;
-import de.soderer.network.HttpRequest;
-import de.soderer.network.HttpUtilities;
-import de.soderer.network.NetworkUtilities;
 
 /**
  * Regression tests for bugs found during the Javadoc and bug review of the network library.

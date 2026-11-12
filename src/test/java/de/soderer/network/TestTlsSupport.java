@@ -1,4 +1,4 @@
-package de.soderer.utilities;
+package de.soderer.network;
 
 import java.io.File;
 import java.io.FileInputStream;

@@ -1,4 +1,4 @@
-package de.soderer.utilities;
+package de.soderer.network;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -23,8 +23,6 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
-import de.soderer.network.HttpMethod;
-import de.soderer.network.HttpRequest;
 import de.soderer.network.HttpRequest.UploadFileAttachment;
 
 /**
