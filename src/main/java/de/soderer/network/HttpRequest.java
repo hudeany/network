@@ -113,6 +113,12 @@ public class HttpRequest {
 	 */
 	private int maxRedirects = 0;
 
+	/**
+	 * Requested HTTP version, HTTP/1.1 by default. The version actually used is returned by
+	 * {@link HttpResponse#getHttpVersion()}.
+	 */
+	private HttpVersion httpVersion = HttpVersion.HTTP_1_1;
+
 	/** Default hop limit used by the {@link #setFollowRedirects(boolean)} convenience method */
 	public static final int DEFAULT_MAX_REDIRECTS = 25;
 
@@ -777,6 +783,35 @@ public class HttpRequest {
 	}
 
 	/**
+	 * Returns the requested HTTP version.
+	 *
+	 * @return the requested version, HTTP/1.1 by default
+	 */
+	public HttpVersion getHttpVersion() {
+		return httpVersion;
+	}
+
+	/**
+	 * Sets the requested HTTP version. With {@link HttpVersion#HTTP_2} the request falls back to
+	 * HTTP/1.1 if the server does not support HTTP/2. The version actually used is returned by
+	 * {@link HttpResponse#getHttpVersion()}. Redirected requests use the same requested version.
+	 *
+	 * @param httpVersion
+	 *            the requested version, null for HTTP/1.1
+	 * @return this request for chaining
+	 * @throws IllegalArgumentException
+	 *             for {@link HttpVersion#HTTP_1_0}, which cannot be requested
+	 */
+	public HttpRequest setHttpVersion(final HttpVersion httpVersion) {
+		if (httpVersion == HttpVersion.HTTP_1_0) {
+			throw new IllegalArgumentException("HTTP/1.0 cannot be requested, use HTTP/1.1 or HTTP/2");
+		}
+		this.httpVersion = httpVersion == null ? HttpVersion.HTTP_1_1 : httpVersion;
+
+		return this;
+	}
+
+	/**
 	 * Returns the connection of the request currently executed.
 	 *
 	 * @return the connection, or null if the request is not being executed
@@ -800,7 +835,7 @@ public class HttpRequest {
 	 */
 	@Override
 	public String toString() {
-		return requestMethod.name() + " " + url;
+		return requestMethod.name() + " " + url + (httpVersion == HttpVersion.HTTP_1_1 ? "" : " (" + httpVersion.getProtocolName() + ")");
 	}
 
 	/**

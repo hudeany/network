@@ -56,6 +56,10 @@ public class HttpResponse {
 	 * Path of the file the body was saved to.
 	 */
 	private final String downloadedFilePath;
+	/**
+	 * HTTP version actually used.
+	 */
+	private final HttpVersion httpVersion;
 
 	/**
 	 * Creates a response without redirect information.
@@ -159,6 +163,41 @@ public class HttpResponse {
 	 */
 	public HttpResponse(final String ipAddress, final int httpCode, final String httpCodeMessage, final String content, final String contentType, final Map<String, String> headers, final Map<String, String> cookieData,
 			final int redirectCount, final String finalUrl, final boolean credentialsDroppedOnRedirect, final String downloadedFilePath) {
+		this(ipAddress, httpCode, httpCodeMessage, content, contentType, headers, cookieData, redirectCount, finalUrl, credentialsDroppedOnRedirect, downloadedFilePath, null);
+	}
+
+	/**
+	 * Creates a response.
+	 *
+	 * @param ipAddress
+	 *            IP address of the server, may be null
+	 * @param httpCode
+	 *            HTTP status code
+	 * @param httpCodeMessage
+	 *            HTTP status message
+	 * @param content
+	 *            response body as text, null if it was saved to a file
+	 * @param contentType
+	 *            value of the "Content-Type" header
+	 * @param headers
+	 *            response headers, may be null
+	 * @param cookieData
+	 *            cookies set by the response, may be null
+	 * @param redirectCount
+	 *            number of redirect hops that were followed to arrive at this response (0 if none)
+	 * @param finalUrl
+	 *            the URL this response actually came from, i.e. the last URL in the redirect chain (null if no redirect was followed)
+	 * @param credentialsDroppedOnRedirect
+	 *            true if an Authorization header and/or cookies were withheld at least once while
+	 *            following a redirect to a different origin (see {@link HttpUtilities#executeHttpRequest(HttpRequest)})
+	 * @param downloadedFilePath
+	 *            absolute path the response body was actually saved to (see {@link HttpRequest#getDownloadFile()}/
+	 *            {@link HttpRequest#getDownloadTarget()}), or null if the body was not saved to a file
+	 * @param httpVersion
+	 *            HTTP version actually used (e.g. HTTP/1.1 after a fallback from a requested HTTP/2), null if unknown
+	 */
+	public HttpResponse(final String ipAddress, final int httpCode, final String httpCodeMessage, final String content, final String contentType, final Map<String, String> headers, final Map<String, String> cookieData,
+			final int redirectCount, final String finalUrl, final boolean credentialsDroppedOnRedirect, final String downloadedFilePath, final HttpVersion httpVersion) {
 		this.ipAddress = ipAddress;
 		this.httpCode = httpCode;
 		this.httpCodeMessage = httpCodeMessage;
@@ -170,6 +209,7 @@ public class HttpResponse {
 		this.finalUrl = finalUrl;
 		this.credentialsDroppedOnRedirect = credentialsDroppedOnRedirect;
 		this.downloadedFilePath = downloadedFilePath;
+		this.httpVersion = httpVersion;
 	}
 
 	/**
@@ -276,11 +316,24 @@ public class HttpResponse {
 	}
 
 	/**
+	 * Returns the HTTP version actually used for this response. If HTTP/2 was requested, but the server
+	 * does not support it, this is HTTP/1.1.
+	 *
+	 * @return the version, or null if unknown
+	 */
+	public HttpVersion getHttpVersion() {
+		return httpVersion;
+	}
+
+	/**
 	 * Returns a multiline description of the response for logging, including headers and content.
 	 */
 	@Override
 	public String toString() {
 		String returnText = "HttpCode: " + httpCode + (NetworkUtilities.isNotEmpty(httpCodeMessage) ? " (" + httpCodeMessage + ")" : "") + "\n";
+		if (httpVersion != null) {
+			returnText += "HttpVersion: " + httpVersion.getProtocolName() + "\n";
+		}
 		if (redirectCount > 0) {
 			returnText += "Redirects: " + redirectCount + " -> " + finalUrl + (credentialsDroppedOnRedirect ? " (credentials dropped on cross-origin redirect)" : "") + "\n";
 		}

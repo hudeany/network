@@ -1,6 +1,7 @@
 package de.soderer.network;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -11,11 +12,14 @@ import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.net.ProxySelector;
+import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.net.UnknownHostException;
+import java.net.http.HttpClient;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
@@ -25,6 +29,7 @@ import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -34,15 +39,19 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Random;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509ExtendedTrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import de.soderer.network.HttpRequest.UploadFileAttachment;
@@ -50,7 +59,12 @@ import de.soderer.network.trustmanager.TrustManagerUtilities;
 import de.soderer.network.utilities.CaseInsensitiveLinkedMap;
 
 /**
- * Executes HTTP requests via {@link HttpURLConnection} and provides HTTP related helper methods.
+ * Executes HTTP requests and provides HTTP related helper methods.
+ * <p>
+ * HTTP/1.1 requests are sent via {@link HttpURLConnection}, HTTP/2 requests (see
+ * {@link HttpRequest#getHttpVersion()}) via {@link HttpClient}, which falls back to HTTP/1.1 if the
+ * server does not support HTTP/2.
+ * </p>
  * <p>
  * Requests can be sent through a proxy (with optional proxy authentication) and with a custom
  * {@link TrustManager} for TLS certificate checks. Redirects are followed as configured in the
@@ -218,389 +232,239 @@ public class HttpUtilities {
 				System.out.println("Requested URL: " + requestedUrl);
 			}
 
-			final HttpURLConnection urlConnection = (HttpURLConnection) URI.create(requestedUrl).toURL()
-					.openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
-			httpRequest.setHttpURLConnection(urlConnection);
-
-			urlConnection.setInstanceFollowRedirects(false);
-			if (httpRequest.getRequestMethod() != null) {
-				urlConnection.setRequestMethod(httpRequest.getRequestMethod().name());
-			}
-			if (proxy != null && !proxy.equals(Proxy.NO_PROXY) && proxyUsername != null && proxyPassword != null) {
-				final String proxyCredentials = proxyUsername + ":" + proxyPassword;
-				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_PROXY_AUTHORIZATION,
-						HttpConstants.AUTHORIZATIONHEADER_START_BASIC + " " + Base64.getEncoder()
-								.encodeToString(proxyCredentials.getBytes(StandardCharsets.UTF_8)));
+			// HttpURLConnection only supports HTTP/1.1, so HTTP/2 requests are sent via java.net.http.HttpClient.
+			// Everything after receiving the response (redirects, cookies, downloads, ...) is transport independent.
+			final ReceivedResponse receivedResponse;
+			if (httpRequest.getHttpVersion() == HttpVersion.HTTP_2) {
+				receivedResponse = sendWithHttpClient(httpRequest, requestedUrl, proxy, proxyUsername, proxyPassword,
+						trustManager, deactivateHostnameVerification);
+			} else {
+				receivedResponse = sendWithHttpUrlConnection(httpRequest, requestedUrl, proxy, proxyUsername, proxyPassword,
+						trustManager, deactivateHostnameVerification);
 			}
 
-			if (requestedUrl.toLowerCase(Locale.ROOT).startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN)) {
-				if (trustManager != null) {
-					// Use special trustmanager
-					final SSLContext sslContext = SSLContext.getInstance(TLS_VERSION);
-					sslContext.init(null, new TrustManager[] { trustManager }, new SecureRandom());
-					final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
-					((HttpsURLConnection) urlConnection).setSSLSocketFactory(sslSocketFactory);
-				}
-				if (deactivateHostnameVerification) {
-					((HttpsURLConnection) urlConnection).setHostnameVerifier(TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER);
-				}
-			}
-
-			if (httpRequest.getConnectTimeoutMillis() >= 0) {
-				urlConnection.setConnectTimeout(httpRequest.getConnectTimeoutMillis());
-			}
-
-			if (httpRequest.getReadTimeoutMillis() >= 0) {
-				urlConnection.setReadTimeout(httpRequest.getReadTimeoutMillis());
-			}
-
-			if (httpRequest.getHeaders() != null && httpRequest.getHeaders().size() > 0) {
-				if (debugLog) {
-					System.out.println("Request Headers: ");
-				}
-
-				for (final Entry<String, String> headerEntry : httpRequest.getHeaders().entrySet()) {
-					urlConnection.setRequestProperty(headerEntry.getKey(), headerEntry.getValue());
-
-					if (debugLog) {
-						System.out.println(headerEntry.getKey() + ": " + headerEntry.getValue());
+			try (receivedResponse) {
+				// urlConnection.getHeaderField(name) only returns a single value per header name, which silently
+				// drops data for headers that are legitimately sent multiple times (most importantly Set-Cookie,
+				// where servers typically send one header per cookie). Join multi-valued headers with ", " instead,
+				// except Set-Cookie, whose values are joined with "\n" so cookie parsing below can split them apart
+				// again without confusing a cookie's own internal ";"-separated attributes with cookie boundaries.
+				final Map<String, String> headers = new CaseInsensitiveLinkedMap<>();
+				for (final Entry<String, List<String>> headerFieldEntry : receivedResponse.getHeaderFields().entrySet()) {
+					final String headerName = headerFieldEntry.getKey();
+					if (headerName == null || headerName.startsWith(":")) {
+						// The status line itself is exposed as a null-keyed entry by HttpURLConnection,
+						// HTTP/2 pseudo headers (e.g. ":status") are no real response headers. Skip both.
+						continue;
 					}
-				}
-			}
-
-			if (httpRequest.getCookieData() != null && httpRequest.getCookieData().size() > 0) {
-				final StringBuilder cookieValue = new StringBuilder();
-				for (final Entry<String, String> cookieEntry : httpRequest.getCookieData().entrySet()) {
-					if (cookieValue.length() > 0) {
-						cookieValue.append("; ");
-					}
-					cookieValue.append(
-							encodeForCookie(cookieEntry.getKey()) + "=" + encodeForCookie(cookieEntry.getValue()));
-				}
-
-				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_COOKIE, cookieValue.toString());
-			}
-
-			final String boundary = HttpUtilities.generateBoundary();
-
-			if (httpRequest.getRequestBodyContentStream() != null) {
-				urlConnection.setDoOutput(true);
-				try (OutputStream outputStream = urlConnection.getOutputStream()) {
-					NetworkUtilities.copy(httpRequest.getRequestBodyContentStream(), outputStream);
-					outputStream.flush();
-				}
-			} else if (httpRequest.getRequestBody() != null) {
-				urlConnection.setDoOutput(true);
-
-				final String httpRequestBody = httpRequest.getRequestBody();
-				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8
-						: httpRequest.getEncoding();
-				final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
-
-				boolean containsHeaderContentType = false;
-				if (httpRequest.getHeaders() != null && httpRequest.getHeaders().size() > 0) {
-					for (final String headerName : httpRequest.getHeaders().keySet()) {
-						if (HttpConstants.HTTPHEADERNAME_CONTENTTYPE.equalsIgnoreCase(headerName)) {
-							containsHeaderContentType = true;
-							break;
-						}
-					}
-				}
-
-				if (!containsHeaderContentType) {
-					urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
-							"text/plain; charset=" + encoding);
-				}
-
-				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH,
-						Integer.toString(httpRequestBodyData.length));
-				try (OutputStream outputStream = urlConnection.getOutputStream()) {
-					outputStream.write(httpRequestBodyData);
-					outputStream.flush();
-				}
-			} else if (httpRequest.getUploadFileAttachments() != null
-					&& httpRequest.getUploadFileAttachments().size() > 0) {
-				urlConnection.setDoOutput(true);
-				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
-						HttpContentType.MultipartForm.getStringRepresentation() + "; boundary=" + boundary);
-
-				try (OutputStream outputStream = urlConnection.getOutputStream()) {
-					if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
-						for (final Entry<String, List<Object>> entry : httpRequest.getPostParameters().entrySet()) {
-							for (final Object value : entry.getValue()) {
-								outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-								outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\""
-										+ urlEncode(entry.getKey(), StandardCharsets.UTF_8) + "\"\r\n")
-												.getBytes(StandardCharsets.UTF_8));
-								outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
-								if (value != null) {
-									outputStream.write(value.toString().getBytes(StandardCharsets.UTF_8));
-								}
-								outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
-							}
-						}
-					}
-
-					for (final UploadFileAttachment uploadFileAttachment : httpRequest.getUploadFileAttachments()) {
-						outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-						// htmlInputName/fileName must be sanitized before being embedded in the Content-Disposition
-						// header: unlike the postParameters branch above (which URL-encodes the field name), these
-						// were previously written verbatim, so a name or filename containing '"' or CR/LF could
-						// break out of the header value and inject additional (attacker-controlled) header lines
-						// or multipart parts.
-						outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\""
-								+ escapeMultipartHeaderValue(uploadFileAttachment.getHtmlInputName()) + "\"; filename=\""
-								+ escapeMultipartHeaderValue(uploadFileAttachment.getFileName()) + "\"\r\n").getBytes(StandardCharsets.UTF_8));
-						outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
-
-						outputStream.write(uploadFileAttachment.getData());
-
-						outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
-					}
-
-					outputStream.write(("--" + boundary + "--" + "\r\n").getBytes(StandardCharsets.UTF_8));
-					outputStream.flush();
-				}
-			} else if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
-				urlConnection.setDoOutput(true);
-
-				boolean containsHeaderContentType = false;
-				if (httpRequest.getHeaders() != null && httpRequest.getHeaders().size() > 0) {
-					for (final String headerName : httpRequest.getHeaders().keySet()) {
-						if (HttpConstants.HTTPHEADERNAME_CONTENTTYPE.equalsIgnoreCase(headerName)) {
-							containsHeaderContentType = true;
-							break;
-						}
-					}
-				}
-
-				if (!containsHeaderContentType) {
-					urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
-							HttpContentType.HtmlForm.getStringRepresentation());
-				}
-
-				final String httpRequestBody = convertToParameterString(httpRequest.getPostParameters(), null);
-
-				if (debugLog) {
-					System.out.println("Request Body: ");
-					System.out.println(httpRequestBody);
-				}
-
-				final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8
-						: httpRequest.getEncoding();
-				final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
-
-				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH,
-						Integer.toString(httpRequestBodyData.length));
-				try (OutputStream outputStream = urlConnection.getOutputStream()) {
-					outputStream.write(httpRequestBodyData);
-					outputStream.flush();
-				}
-			}
-
-			urlConnection.connect();
-
-			// urlConnection.getHeaderField(name) only returns a single value per header name, which silently
-			// drops data for headers that are legitimately sent multiple times (most importantly Set-Cookie,
-			// where servers typically send one header per cookie). Join multi-valued headers with ", " instead,
-			// except Set-Cookie, whose values are joined with "\n" so cookie parsing below can split them apart
-			// again without confusing a cookie's own internal ";"-separated attributes with cookie boundaries.
-			final Map<String, String> headers = new CaseInsensitiveLinkedMap<>();
-			for (final Entry<String, List<String>> headerFieldEntry : urlConnection.getHeaderFields().entrySet()) {
-				final String headerName = headerFieldEntry.getKey();
-				if (headerName == null) {
-					// The status line itself is exposed as a null-keyed entry by HttpURLConnection, skip it
-					continue;
-				}
-				final List<String> headerValues = headerFieldEntry.getValue();
-				final String joinedValue;
-				if (HttpConstants.HTTPHEADERNAME_DOWNLOAD_COOKIE.equalsIgnoreCase(headerName)) {
-					joinedValue = String.join("\n", headerValues);
-				} else {
-					joinedValue = String.join(", ", headerValues);
-				}
-				headers.put(headerName, joinedValue);
-			}
-
-			Charset encoding = StandardCharsets.UTF_8;
-			if (headers.containsKey(HttpConstants.HTTPHEADERNAME_CONTENTTYPE)) {
-				String contentType = headers.get(HttpConstants.HTTPHEADERNAME_CONTENTTYPE);
-				if (contentType != null && contentType.toLowerCase(Locale.ROOT).contains("charset=")) {
-					contentType = contentType.toLowerCase(Locale.ROOT);
-					encoding = Charset.forName(contentType.substring(contentType.indexOf("charset=") + 8).trim());
-				}
-			}
-
-			Map<String, String> cookiesMap = null;
-			if (headers.containsKey(HttpConstants.HTTPHEADERNAME_DOWNLOAD_COOKIE)) {
-				final String cookiesData = headers.get(HttpConstants.HTTPHEADERNAME_DOWNLOAD_COOKIE);
-				if (cookiesData != null) {
-					cookiesMap = new LinkedHashMap<>();
-					// Each line here is one full Set-Cookie header value (joined above with "\n" for multiple headers).
-					// Only its first ";"-segment is the actual "name=value" pair; everything after that are
-					// cookie attributes (Path, Domain, Expires, Max-Age, Secure, HttpOnly, SameSite, ...) and
-					// must not be treated as additional cookies.
-					for (final String cookieHeaderValue : cookiesData.split("\n")) {
-						if (NetworkUtilities.isBlank(cookieHeaderValue)) {
-							continue;
-						}
-						final String nameValuePart = cookieHeaderValue.split(";", 2)[0].trim();
-						final int equalsIndex = nameValuePart.indexOf('=');
-						if (equalsIndex > 0) {
-							// Split on the first "=" only, since the cookie value itself may legitimately contain "="
-							final String cookieName = nameValuePart.substring(0, equalsIndex).trim();
-							final String cookieValue = nameValuePart.substring(equalsIndex + 1).trim();
-							cookiesMap.put(urlDecode(cookieName, StandardCharsets.UTF_8),
-									urlDecode(cookieValue, StandardCharsets.UTF_8));
-						}
-					}
-				}
-			}
-
-			final int httpResponseCode = urlConnection.getResponseCode();
-			final boolean isRedirectResponseCode = httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP
-					|| httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM
-					|| httpResponseCode == HttpURLConnection.HTTP_SEE_OTHER
-					|| httpResponseCode == HTTP_TEMPORARY_REDIRECT
-					|| httpResponseCode == HTTP_PERMANENT_REDIRECT;
-			if (isRedirectResponseCode && httpRequest.getMaxRedirects() != 0) {
-				// Optionally follow redirections (HttpCodes 301, 302, 303, 307 and 308)
-				// NOTE: this check must happen before the "httpResponseCode < 400" success branch below,
-				// since 301/302/303 are all < 400 and would otherwise always be swallowed there first.
-				final int maxRedirects = httpRequest.getMaxRedirects();
-				if (maxRedirects > 0 && redirectCount >= maxRedirects) {
-					throw new Exception("Too many redirects (>" + maxRedirects + ") while requesting URL '" + httpRequest.getUrlWithProtocol() + "'");
-				}
-				final String redirectUrl = urlConnection.getHeaderField("Location");
-				if (NetworkUtilities.isNotBlank(redirectUrl)) {
-					// Resolve the Location value against the requested URL, since servers are allowed to
-					// send a relative redirect target (path only, without scheme/host).
-					final URI redirectUri = URI.create(requestedUrl).resolve(redirectUrl);
-
-					// Credentials (Authorization header, Cookies) must only be forwarded to a redirect
-					// target on the SAME origin (scheme + host + port). Otherwise the server issuing the
-					// redirect (or an open-redirect flaw on its side) could exfiltrate them to an arbitrary
-					// third-party host. Non-credential headers are still carried over regardless of origin.
-					final boolean sameOrigin = isSameOrigin(URI.create(requestedUrl), redirectUri);
-
-					final boolean hadAuthorizationHeader = httpRequest.getHeaders() != null && httpRequest.getHeaders().keySet().stream()
-							.anyMatch(headerName -> HttpConstants.HTTPHEADERNAME_AUTHORIZATION.equalsIgnoreCase(headerName));
-					final boolean hadCookies = httpRequest.getCookieData() != null && httpRequest.getCookieData().size() > 0;
-					final boolean credentialsDroppedThisHop = !sameOrigin && (hadAuthorizationHeader || hadCookies);
-
-					// Determine the HTTP method to use for the redirected request:
-					// - 303 (See Other) always switches to GET and drops the body (RFC 7231 6.4.4).
-					// - 301/302 for an original POST also downgrade to GET/no body; this is not strictly
-					//   required by RFC 7231 but is the behaviour established by browsers and most HTTP
-					//   client libraries, so servers generally rely on it.
-					// - 307/308 (and 301/302 for methods other than POST, e.g. GET/HEAD) always preserve
-					//   the original method and body.
-					final HttpMethod originalMethod = httpRequest.getRequestMethod();
-					final HttpMethod redirectedMethod;
-					final boolean dropBody;
-					if (httpResponseCode == HttpURLConnection.HTTP_SEE_OTHER) {
-						redirectedMethod = HttpMethod.GET;
-						dropBody = true;
-					} else if ((httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM
-							|| httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP)
-							&& originalMethod == HttpMethod.POST) {
-						redirectedMethod = HttpMethod.GET;
-						dropBody = true;
+					final List<String> headerValues = headerFieldEntry.getValue();
+					final String joinedValue;
+					if (HttpConstants.HTTPHEADERNAME_DOWNLOAD_COOKIE.equalsIgnoreCase(headerName)) {
+						joinedValue = String.join("\n", headerValues);
 					} else {
-						redirectedMethod = originalMethod;
-						dropBody = false;
+						joinedValue = String.join(", ", headerValues);
 					}
+					headers.put(headerName, joinedValue);
+				}
 
-					final HttpRequest redirectedHttpRequest = new HttpRequest(redirectedMethod, redirectUri.toString());
-
-					if (!dropBody) {
-						if (httpRequest.getRequestBodyContentStream() != null) {
-							// An InputStream-based request body has already been (partially) consumed while
-							// sending the original request, so it cannot be safely re-read for the redirected
-							// request. Silently sending the redirect without it would just hide the problem.
-							throw new Exception("Cannot follow " + httpResponseCode + " redirect for URL '"
-									+ httpRequest.getUrlWithProtocol() + "' to '" + redirectUri
-									+ "': the request body was supplied as an InputStream, which cannot be re-sent for a redirected request.");
-						}
-						if (httpRequest.getRequestBody() != null) {
-							redirectedHttpRequest.setRequestBody(httpRequest.getRequestBody());
-						}
-						for (final Entry<String, List<Object>> postParameterEntry : httpRequest.getPostParameters().entrySet()) {
-							for (final Object value : postParameterEntry.getValue()) {
-								redirectedHttpRequest.addPostParameter(postParameterEntry.getKey(), value);
-							}
-						}
-						for (final UploadFileAttachment uploadFileAttachment : httpRequest.getUploadFileAttachments()) {
-							redirectedHttpRequest.addUploadFileData(uploadFileAttachment.getHtmlInputName(),
-									uploadFileAttachment.getFileName(), uploadFileAttachment.getData());
-						}
+				Charset encoding = StandardCharsets.UTF_8;
+				if (headers.containsKey(HttpConstants.HTTPHEADERNAME_CONTENTTYPE)) {
+					String contentType = headers.get(HttpConstants.HTTPHEADERNAME_CONTENTTYPE);
+					if (contentType != null && contentType.toLowerCase(Locale.ROOT).contains("charset=")) {
+						contentType = contentType.toLowerCase(Locale.ROOT);
+						encoding = Charset.forName(contentType.substring(contentType.indexOf("charset=") + 8).trim());
 					}
+				}
 
-					if (httpRequest.getHeaders() != null) {
-						for (final Entry<String, String> headerEntry : httpRequest.getHeaders().entrySet()) {
-							if (!sameOrigin && HttpConstants.HTTPHEADERNAME_AUTHORIZATION.equalsIgnoreCase(headerEntry.getKey())) {
-								// Drop credentials when redirected to a different origin
+				Map<String, String> cookiesMap = null;
+				if (headers.containsKey(HttpConstants.HTTPHEADERNAME_DOWNLOAD_COOKIE)) {
+					final String cookiesData = headers.get(HttpConstants.HTTPHEADERNAME_DOWNLOAD_COOKIE);
+					if (cookiesData != null) {
+						cookiesMap = new LinkedHashMap<>();
+						// Each line here is one full Set-Cookie header value (joined above with "\n" for multiple headers).
+						// Only its first ";"-segment is the actual "name=value" pair; everything after that are
+						// cookie attributes (Path, Domain, Expires, Max-Age, Secure, HttpOnly, SameSite, ...) and
+						// must not be treated as additional cookies.
+						for (final String cookieHeaderValue : cookiesData.split("\n")) {
+							if (NetworkUtilities.isBlank(cookieHeaderValue)) {
 								continue;
 							}
-							redirectedHttpRequest.addHeader(headerEntry.getKey(), headerEntry.getValue());
+							final String nameValuePart = cookieHeaderValue.split(";", 2)[0].trim();
+							final int equalsIndex = nameValuePart.indexOf('=');
+							if (equalsIndex > 0) {
+								// Split on the first "=" only, since the cookie value itself may legitimately contain "="
+								final String cookieName = nameValuePart.substring(0, equalsIndex).trim();
+								final String cookieValue = nameValuePart.substring(equalsIndex + 1).trim();
+								cookiesMap.put(urlDecode(cookieName, StandardCharsets.UTF_8),
+										urlDecode(cookieValue, StandardCharsets.UTF_8));
+							}
 						}
 					}
-					if (sameOrigin && httpRequest.getCookieData() != null) {
-						for (final Entry<String, String> cookieEntry : httpRequest.getCookieData().entrySet()) {
-							redirectedHttpRequest.addCookieData(cookieEntry.getKey(), cookieEntry.getValue());
-						}
-					}
-					redirectedHttpRequest.setEncoding(httpRequest.getEncoding());
-					redirectedHttpRequest.setConnectionTimeoutMillis(httpRequest.getConnectTimeoutMillis());
-					redirectedHttpRequest.setReadTimeoutMillis(httpRequest.getReadTimeoutMillis());
-					// Propagate the same hop-limit semantics (unlimited stays unlimited, a finite limit stays the same limit)
-					redirectedHttpRequest.setMaxRedirects(maxRedirects);
-					return executeHttpRequest(redirectedHttpRequest, proxy, proxyUsername, proxyPassword, trustManager,
-							deactivateHostnameVerification, redirectCount + 1, credentialsDroppedSoFar || credentialsDroppedThisHop);
-				} else {
-					throw new Exception("Redirection url was empty");
 				}
-			} else if (httpResponseCode < HttpURLConnection.HTTP_BAD_REQUEST) {
-				final String finalUrlForResponse = redirectCount > 0 ? requestedUrl : null;
-				if (httpRequest.getDownloadStream() != null && 200 <= httpResponseCode && httpResponseCode <= 299) {
-					NetworkUtilities.copy(urlConnection.getInputStream(), httpRequest.getDownloadStream());
-					final String ipAddress = getIpAddress(urlConnection);
-					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
-							"File downloaded", urlConnection.getContentType(), headers, cookiesMap,
-							redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
-				} else if (httpRequest.getDownloadFile() != null && 200 <= httpResponseCode
-						&& httpResponseCode <= 299) {
-					try (FileOutputStream downloadFileOutputStream = new FileOutputStream(
-							httpRequest.getDownloadFile())) {
-						NetworkUtilities.copy(urlConnection.getInputStream(), downloadFileOutputStream);
-						final String ipAddress = getIpAddress(urlConnection);
-						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
-								"File downloaded", urlConnection.getContentType(), headers, cookiesMap,
-								redirectCount, finalUrlForResponse, credentialsDroppedSoFar, httpRequest.getDownloadFile().getAbsolutePath());
-					} catch (final Exception e) {
-						if (httpRequest.getDownloadFile().exists()) {
-							httpRequest.getDownloadFile().delete();
-						}
-						throw e;
+
+				final int httpResponseCode = receivedResponse.getStatusCode();
+				final boolean isRedirectResponseCode = httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP
+						|| httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM
+						|| httpResponseCode == HttpURLConnection.HTTP_SEE_OTHER
+						|| httpResponseCode == HTTP_TEMPORARY_REDIRECT
+						|| httpResponseCode == HTTP_PERMANENT_REDIRECT;
+				if (isRedirectResponseCode && httpRequest.getMaxRedirects() != 0) {
+					// Optionally follow redirections (HttpCodes 301, 302, 303, 307 and 308)
+					// NOTE: this check must happen before the "httpResponseCode < 400" success branch below,
+					// since 301/302/303 are all < 400 and would otherwise always be swallowed there first.
+					final int maxRedirects = httpRequest.getMaxRedirects();
+					if (maxRedirects > 0 && redirectCount >= maxRedirects) {
+						throw new Exception("Too many redirects (>" + maxRedirects + ") while requesting URL '" + httpRequest.getUrlWithProtocol() + "'");
 					}
-				} else if (httpRequest.getDownloadTarget() != null && 200 <= httpResponseCode && httpResponseCode <= 299
-						&& isFileDownloadResponse(headers)) {
-					final File targetFile = resolveDownloadTargetFile(httpRequest.getDownloadTarget(), headers, requestedUrl);
-					try (FileOutputStream downloadFileOutputStream = new FileOutputStream(targetFile)) {
-						NetworkUtilities.copy(urlConnection.getInputStream(), downloadFileOutputStream);
-						final String ipAddress = getIpAddress(urlConnection);
-						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
-								"File downloaded to '" + targetFile.getAbsolutePath() + "'", urlConnection.getContentType(), headers, cookiesMap,
-								redirectCount, finalUrlForResponse, credentialsDroppedSoFar, targetFile.getAbsolutePath());
-					} catch (final Exception e) {
-						if (targetFile.exists()) {
-							targetFile.delete();
+					final String redirectUrl = headers.get("Location");
+					if (NetworkUtilities.isNotBlank(redirectUrl)) {
+						// Resolve the Location value against the requested URL, since servers are allowed to
+						// send a relative redirect target (path only, without scheme/host).
+						final URI redirectUri = URI.create(requestedUrl).resolve(redirectUrl);
+
+						// Credentials (Authorization header, Cookies) must only be forwarded to a redirect
+						// target on the SAME origin (scheme + host + port). Otherwise the server issuing the
+						// redirect (or an open-redirect flaw on its side) could exfiltrate them to an arbitrary
+						// third-party host. Non-credential headers are still carried over regardless of origin.
+						final boolean sameOrigin = isSameOrigin(URI.create(requestedUrl), redirectUri);
+
+						final boolean hadAuthorizationHeader = httpRequest.getHeaders() != null && httpRequest.getHeaders().keySet().stream()
+								.anyMatch(headerName -> HttpConstants.HTTPHEADERNAME_AUTHORIZATION.equalsIgnoreCase(headerName));
+						final boolean hadCookies = httpRequest.getCookieData() != null && httpRequest.getCookieData().size() > 0;
+						final boolean credentialsDroppedThisHop = !sameOrigin && (hadAuthorizationHeader || hadCookies);
+
+						// Determine the HTTP method to use for the redirected request:
+						// - 303 (See Other) always switches to GET and drops the body (RFC 7231 6.4.4).
+						// - 301/302 for an original POST also downgrade to GET/no body; this is not strictly
+						//   required by RFC 7231 but is the behaviour established by browsers and most HTTP
+						//   client libraries, so servers generally rely on it.
+						// - 307/308 (and 301/302 for methods other than POST, e.g. GET/HEAD) always preserve
+						//   the original method and body.
+						final HttpMethod originalMethod = httpRequest.getRequestMethod();
+						final HttpMethod redirectedMethod;
+						final boolean dropBody;
+						if (httpResponseCode == HttpURLConnection.HTTP_SEE_OTHER) {
+							redirectedMethod = HttpMethod.GET;
+							dropBody = true;
+						} else if ((httpResponseCode == HttpURLConnection.HTTP_MOVED_PERM
+								|| httpResponseCode == HttpURLConnection.HTTP_MOVED_TEMP)
+								&& originalMethod == HttpMethod.POST) {
+							redirectedMethod = HttpMethod.GET;
+							dropBody = true;
+						} else {
+							redirectedMethod = originalMethod;
+							dropBody = false;
 						}
-						throw e;
+
+						final HttpRequest redirectedHttpRequest = new HttpRequest(redirectedMethod, redirectUri.toString());
+
+						if (!dropBody) {
+							if (httpRequest.getRequestBodyContentStream() != null) {
+								// An InputStream-based request body has already been (partially) consumed while
+								// sending the original request, so it cannot be safely re-read for the redirected
+								// request. Silently sending the redirect without it would just hide the problem.
+								throw new Exception("Cannot follow " + httpResponseCode + " redirect for URL '"
+										+ httpRequest.getUrlWithProtocol() + "' to '" + redirectUri
+										+ "': the request body was supplied as an InputStream, which cannot be re-sent for a redirected request.");
+							}
+							if (httpRequest.getRequestBody() != null) {
+								redirectedHttpRequest.setRequestBody(httpRequest.getRequestBody());
+							}
+							for (final Entry<String, List<Object>> postParameterEntry : httpRequest.getPostParameters().entrySet()) {
+								for (final Object value : postParameterEntry.getValue()) {
+									redirectedHttpRequest.addPostParameter(postParameterEntry.getKey(), value);
+								}
+							}
+							for (final UploadFileAttachment uploadFileAttachment : httpRequest.getUploadFileAttachments()) {
+								redirectedHttpRequest.addUploadFileData(uploadFileAttachment.getHtmlInputName(),
+										uploadFileAttachment.getFileName(), uploadFileAttachment.getData());
+							}
+						}
+
+						if (httpRequest.getHeaders() != null) {
+							for (final Entry<String, String> headerEntry : httpRequest.getHeaders().entrySet()) {
+								if (!sameOrigin && HttpConstants.HTTPHEADERNAME_AUTHORIZATION.equalsIgnoreCase(headerEntry.getKey())) {
+									// Drop credentials when redirected to a different origin
+									continue;
+								}
+								redirectedHttpRequest.addHeader(headerEntry.getKey(), headerEntry.getValue());
+							}
+						}
+						if (sameOrigin && httpRequest.getCookieData() != null) {
+							for (final Entry<String, String> cookieEntry : httpRequest.getCookieData().entrySet()) {
+								redirectedHttpRequest.addCookieData(cookieEntry.getKey(), cookieEntry.getValue());
+							}
+						}
+						redirectedHttpRequest.setEncoding(httpRequest.getEncoding());
+						redirectedHttpRequest.setConnectionTimeoutMillis(httpRequest.getConnectTimeoutMillis());
+						redirectedHttpRequest.setReadTimeoutMillis(httpRequest.getReadTimeoutMillis());
+						// The redirected request uses the same protocol version as the original one
+						redirectedHttpRequest.setHttpVersion(httpRequest.getHttpVersion());
+						// Propagate the same hop-limit semantics (unlimited stays unlimited, a finite limit stays the same limit)
+						redirectedHttpRequest.setMaxRedirects(maxRedirects);
+						return executeHttpRequest(redirectedHttpRequest, proxy, proxyUsername, proxyPassword, trustManager,
+								deactivateHostnameVerification, redirectCount + 1, credentialsDroppedSoFar || credentialsDroppedThisHop);
+					} else {
+						throw new Exception("Redirection url was empty");
+					}
+				} else if (httpResponseCode < HttpURLConnection.HTTP_BAD_REQUEST) {
+					final String finalUrlForResponse = redirectCount > 0 ? requestedUrl : null;
+					if (httpRequest.getDownloadStream() != null && 200 <= httpResponseCode && httpResponseCode <= 299) {
+						NetworkUtilities.copy(receivedResponse.getBodyStream(), httpRequest.getDownloadStream());
+						return new HttpResponse(receivedResponse.getIpAddress(), httpResponseCode, receivedResponse.getStatusMessage(),
+								"File downloaded", receivedResponse.getContentType(), headers, cookiesMap,
+								redirectCount, finalUrlForResponse, credentialsDroppedSoFar, null, receivedResponse.getHttpVersion());
+					} else if (httpRequest.getDownloadFile() != null && 200 <= httpResponseCode
+							&& httpResponseCode <= 299) {
+						try (FileOutputStream downloadFileOutputStream = new FileOutputStream(
+								httpRequest.getDownloadFile())) {
+							NetworkUtilities.copy(receivedResponse.getBodyStream(), downloadFileOutputStream);
+							return new HttpResponse(receivedResponse.getIpAddress(), httpResponseCode, receivedResponse.getStatusMessage(),
+									"File downloaded", receivedResponse.getContentType(), headers, cookiesMap,
+									redirectCount, finalUrlForResponse, credentialsDroppedSoFar, httpRequest.getDownloadFile().getAbsolutePath(), receivedResponse.getHttpVersion());
+						} catch (final Exception e) {
+							if (httpRequest.getDownloadFile().exists()) {
+								httpRequest.getDownloadFile().delete();
+							}
+							throw e;
+						}
+					} else if (httpRequest.getDownloadTarget() != null && 200 <= httpResponseCode && httpResponseCode <= 299
+							&& isFileDownloadResponse(headers)) {
+						final File targetFile = resolveDownloadTargetFile(httpRequest.getDownloadTarget(), headers, requestedUrl);
+						try (FileOutputStream downloadFileOutputStream = new FileOutputStream(targetFile)) {
+							NetworkUtilities.copy(receivedResponse.getBodyStream(), downloadFileOutputStream);
+							return new HttpResponse(receivedResponse.getIpAddress(), httpResponseCode, receivedResponse.getStatusMessage(),
+									"File downloaded to '" + targetFile.getAbsolutePath() + "'", receivedResponse.getContentType(), headers, cookiesMap,
+									redirectCount, finalUrlForResponse, credentialsDroppedSoFar, targetFile.getAbsolutePath(), receivedResponse.getHttpVersion());
+						} catch (final Exception e) {
+							if (targetFile.exists()) {
+								targetFile.delete();
+							}
+							throw e;
+						}
+					} else {
+						try (BufferedReader httpResponseContentReader = new BufferedReader(
+								new InputStreamReader(receivedResponse.getBodyStream(), encoding))) {
+							final StringBuilder httpResponseContent = new StringBuilder();
+							String httpResponseContentLine;
+							while ((httpResponseContentLine = httpResponseContentReader.readLine()) != null) {
+								if (httpResponseContent.length() > 0) {
+									httpResponseContent.append("\n");
+								}
+								httpResponseContent.append(httpResponseContentLine);
+							}
+							return new HttpResponse(receivedResponse.getIpAddress(), httpResponseCode, receivedResponse.getStatusMessage(),
+									httpResponseContent.toString(), receivedResponse.getContentType(), headers, cookiesMap,
+									redirectCount, finalUrlForResponse, credentialsDroppedSoFar, null, receivedResponse.getHttpVersion());
+						} catch (@SuppressWarnings("unused") final Exception e) {
+							return new HttpResponse(receivedResponse.getIpAddress(), httpResponseCode, receivedResponse.getStatusMessage(), null,
+									null, headers, cookiesMap, redirectCount, finalUrlForResponse, credentialsDroppedSoFar, null, receivedResponse.getHttpVersion());
+						}
 					}
 				} else {
+					final String finalUrlForResponse = redirectCount > 0 ? requestedUrl : null;
 					try (BufferedReader httpResponseContentReader = new BufferedReader(
-							new InputStreamReader(urlConnection.getInputStream(), encoding))) {
+							new InputStreamReader(receivedResponse.getBodyStream(), encoding))) {
 						final StringBuilder httpResponseContent = new StringBuilder();
 						String httpResponseContentLine;
 						while ((httpResponseContentLine = httpResponseContentReader.readLine()) != null) {
@@ -609,36 +473,13 @@ public class HttpUtilities {
 							}
 							httpResponseContent.append(httpResponseContentLine);
 						}
-						final String ipAddress = getIpAddress(urlConnection);
-						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
-								httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap,
-								redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
+						return new HttpResponse(receivedResponse.getIpAddress(), httpResponseCode, receivedResponse.getStatusMessage(),
+								httpResponseContent.toString(), receivedResponse.getContentType(), headers, cookiesMap,
+								redirectCount, finalUrlForResponse, credentialsDroppedSoFar, null, receivedResponse.getHttpVersion());
 					} catch (@SuppressWarnings("unused") final Exception e) {
-						final String ipAddress = getIpAddress(urlConnection);
-						return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null,
-								null, headers, cookiesMap, redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
+						return new HttpResponse(receivedResponse.getIpAddress(), httpResponseCode, receivedResponse.getStatusMessage(), null, null,
+								headers, cookiesMap, redirectCount, finalUrlForResponse, credentialsDroppedSoFar, null, receivedResponse.getHttpVersion());
 					}
-				}
-			} else {
-				final String finalUrlForResponse = redirectCount > 0 ? requestedUrl : null;
-				try (BufferedReader httpResponseContentReader = new BufferedReader(
-						new InputStreamReader(urlConnection.getErrorStream(), encoding))) {
-					final StringBuilder httpResponseContent = new StringBuilder();
-					String httpResponseContentLine;
-					while ((httpResponseContentLine = httpResponseContentReader.readLine()) != null) {
-						if (httpResponseContent.length() > 0) {
-							httpResponseContent.append("\n");
-						}
-						httpResponseContent.append(httpResponseContentLine);
-					}
-					final String ipAddress = getIpAddress(urlConnection);
-					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(),
-							httpResponseContent.toString(), urlConnection.getContentType(), headers, cookiesMap,
-							redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
-				} catch (@SuppressWarnings("unused") final Exception e) {
-					final String ipAddress = getIpAddress(urlConnection);
-					return new HttpResponse(ipAddress, httpResponseCode, urlConnection.getResponseMessage(), null, null,
-							headers, cookiesMap, redirectCount, finalUrlForResponse, credentialsDroppedSoFar);
 				}
 			}
 		} catch (final UnknownHostException e) {
@@ -655,6 +496,598 @@ public class HttpUtilities {
 			throw e;
 		} finally {
 			httpRequest.setHttpURLConnection(null);
+		}
+	}
+
+	/**
+	 * Sends a request via {@link HttpURLConnection} (HTTP/1.1) without following redirects.
+	 */
+	private static ReceivedResponse sendWithHttpUrlConnection(final HttpRequest httpRequest, final String requestedUrl,
+			final Proxy proxy, final String proxyUsername, final String proxyPassword, final TrustManager trustManager,
+			final boolean deactivateHostnameVerification) throws Exception {
+		final HttpURLConnection urlConnection = (HttpURLConnection) URI.create(requestedUrl).toURL()
+				.openConnection(proxy == null ? Proxy.NO_PROXY : proxy);
+		httpRequest.setHttpURLConnection(urlConnection);
+
+		urlConnection.setInstanceFollowRedirects(false);
+		if (httpRequest.getRequestMethod() != null) {
+			urlConnection.setRequestMethod(httpRequest.getRequestMethod().name());
+		}
+		if (proxy != null && !proxy.equals(Proxy.NO_PROXY) && proxyUsername != null && proxyPassword != null) {
+			urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_PROXY_AUTHORIZATION,
+					createProxyAuthorizationHeaderValue(proxyUsername, proxyPassword));
+		}
+
+		if (requestedUrl.toLowerCase(Locale.ROOT).startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN)) {
+			if (trustManager != null) {
+				// Use special trustmanager
+				final SSLContext sslContext = SSLContext.getInstance(TLS_VERSION);
+				sslContext.init(null, new TrustManager[] { trustManager }, new SecureRandom());
+				final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
+				((HttpsURLConnection) urlConnection).setSSLSocketFactory(sslSocketFactory);
+			}
+			if (deactivateHostnameVerification) {
+				((HttpsURLConnection) urlConnection).setHostnameVerifier(TRUSTALLHOSTNAMES_HOSTNAMEVERIFIER);
+			}
+		}
+
+		if (httpRequest.getConnectTimeoutMillis() >= 0) {
+			urlConnection.setConnectTimeout(httpRequest.getConnectTimeoutMillis());
+		}
+
+		if (httpRequest.getReadTimeoutMillis() >= 0) {
+			urlConnection.setReadTimeout(httpRequest.getReadTimeoutMillis());
+		}
+
+		if (httpRequest.getHeaders() != null && httpRequest.getHeaders().size() > 0) {
+			if (debugLog) {
+				System.out.println("Request Headers: ");
+			}
+
+			for (final Entry<String, String> headerEntry : httpRequest.getHeaders().entrySet()) {
+				urlConnection.setRequestProperty(headerEntry.getKey(), headerEntry.getValue());
+
+				if (debugLog) {
+					System.out.println(headerEntry.getKey() + ": " + headerEntry.getValue());
+				}
+			}
+		}
+
+		final String cookieHeaderValue = createCookieHeaderValue(httpRequest);
+		if (cookieHeaderValue != null) {
+			urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_COOKIE, cookieHeaderValue);
+		}
+
+		if (httpRequest.getRequestBodyContentStream() != null) {
+			urlConnection.setDoOutput(true);
+			try (OutputStream outputStream = urlConnection.getOutputStream()) {
+				NetworkUtilities.copy(httpRequest.getRequestBodyContentStream(), outputStream);
+				outputStream.flush();
+			}
+		} else if (httpRequest.getRequestBody() != null) {
+			urlConnection.setDoOutput(true);
+
+			final String httpRequestBody = httpRequest.getRequestBody();
+			final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8
+					: httpRequest.getEncoding();
+			final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
+
+			if (!hasRequestHeader(httpRequest, HttpConstants.HTTPHEADERNAME_CONTENTTYPE)) {
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
+						"text/plain; charset=" + encoding);
+			}
+
+			urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH,
+					Integer.toString(httpRequestBodyData.length));
+			try (OutputStream outputStream = urlConnection.getOutputStream()) {
+				outputStream.write(httpRequestBodyData);
+				outputStream.flush();
+			}
+		} else if (httpRequest.getUploadFileAttachments() != null
+				&& httpRequest.getUploadFileAttachments().size() > 0) {
+			final String boundary = HttpUtilities.generateBoundary();
+			urlConnection.setDoOutput(true);
+			urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
+					HttpContentType.MultipartForm.getStringRepresentation() + "; boundary=" + boundary);
+
+			try (OutputStream outputStream = urlConnection.getOutputStream()) {
+				writeMultipartBody(httpRequest, boundary, outputStream);
+				outputStream.flush();
+			}
+		} else if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
+			urlConnection.setDoOutput(true);
+
+			if (!hasRequestHeader(httpRequest, HttpConstants.HTTPHEADERNAME_CONTENTTYPE)) {
+				urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
+						HttpContentType.HtmlForm.getStringRepresentation());
+			}
+
+			final String httpRequestBody = convertToParameterString(httpRequest.getPostParameters(), null);
+
+			if (debugLog) {
+				System.out.println("Request Body: ");
+				System.out.println(httpRequestBody);
+			}
+
+			final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8
+					: httpRequest.getEncoding();
+			final byte[] httpRequestBodyData = httpRequestBody.getBytes(encoding);
+
+			urlConnection.setRequestProperty(HttpConstants.HTTPHEADERNAME_CONTENTLENGTH,
+					Integer.toString(httpRequestBodyData.length));
+			try (OutputStream outputStream = urlConnection.getOutputStream()) {
+				outputStream.write(httpRequestBodyData);
+				outputStream.flush();
+			}
+		}
+
+		urlConnection.connect();
+
+		return new HttpUrlConnectionResponse(urlConnection);
+	}
+
+	/**
+	 * Request header names that java.net.http.HttpClient manages itself (it throws an
+	 * IllegalArgumentException if they are set) or that are forbidden in HTTP/2 (connection specific
+	 * headers, RFC 9113 8.2.2). Such headers from the request are skipped for HTTP/2.
+	 */
+	private static final Set<String> HTTP2_SKIPPED_REQUEST_HEADERS = Set.of("connection", "content-length", "expect", "host",
+			"upgrade", "keep-alive", "proxy-connection", "transfer-encoding");
+
+	/**
+	 * Sends a request via {@link HttpClient} with HTTP/2 without following redirects.
+	 * <p>
+	 * For "https" the protocol is negotiated via TLS ALPN, for "http" the JDK tries an "h2c" upgrade.
+	 * If the server does not support HTTP/2, the JDK falls back to HTTP/1.1 transparently.
+	 * </p>
+	 */
+	private static ReceivedResponse sendWithHttpClient(final HttpRequest httpRequest, final String requestedUrl,
+			final Proxy proxy, final String proxyUsername, final String proxyPassword, final TrustManager trustManager,
+			final boolean deactivateHostnameVerification) throws Exception {
+		final URI requestUri = URI.create(requestedUrl);
+
+		final HttpClient.Builder httpClientBuilder = HttpClient.newBuilder()
+				.version(HttpClient.Version.HTTP_2)
+				// Redirects are handled by executeHttpRequest, so that credentials are not forwarded to other origins
+				.followRedirects(HttpClient.Redirect.NEVER);
+
+		// Same semantics as for HttpURLConnection above: null means a direct connection
+		if (proxy == null || proxy.type() == Proxy.Type.DIRECT) {
+			httpClientBuilder.proxy(HttpClient.Builder.NO_PROXY);
+		} else if (proxy.type() == Proxy.Type.HTTP && proxy.address() instanceof final InetSocketAddress proxyAddress) {
+			httpClientBuilder.proxy(ProxySelector.of(proxyAddress));
+		} else {
+			throw new Exception("Proxy type '" + proxy.type() + "' is not supported for HTTP/2 requests");
+		}
+
+		if (requestedUrl.toLowerCase(Locale.ROOT).startsWith(HttpConstants.SECURE_HTTP_PROTOCOL_SIGN)
+				&& (trustManager != null || deactivateHostnameVerification)) {
+			// HttpClient has no HostnameVerifier. Its hostname check is done by the TrustManager (endpoint
+			// identification), so for a deactivated hostname verification the TrustManager is wrapped.
+			final TrustManager effectiveTrustManager = deactivateHostnameVerification
+					? createTrustManagerWithoutHostnameVerification(trustManager)
+					: trustManager;
+			final SSLContext sslContext = SSLContext.getInstance(TLS_VERSION);
+			sslContext.init(null, new TrustManager[] { effectiveTrustManager }, new SecureRandom());
+			httpClientBuilder.sslContext(sslContext);
+		}
+
+		if (httpRequest.getConnectTimeoutMillis() > 0) {
+			httpClientBuilder.connectTimeout(Duration.ofMillis(httpRequest.getConnectTimeoutMillis()));
+		}
+
+		final java.net.http.HttpRequest.Builder requestBuilder = java.net.http.HttpRequest.newBuilder(requestUri);
+
+		if (httpRequest.getReadTimeoutMillis() > 0) {
+			// HttpClient has no read timeout between data packets. This timeout applies until the response headers are received.
+			requestBuilder.timeout(Duration.ofMillis(httpRequest.getReadTimeoutMillis()));
+		}
+
+		if (proxy != null && proxy.type() == Proxy.Type.HTTP && proxyUsername != null && proxyPassword != null) {
+			// For "https" via proxy this header is only used for the CONNECT request, not forwarded to the target server.
+			// NOTE: The JDK refuses Basic authentication for tunneling by default, see system property "jdk.http.auth.tunneling.disabledSchemes".
+			requestBuilder.setHeader(HttpConstants.HTTPHEADERNAME_PROXY_AUTHORIZATION,
+					createProxyAuthorizationHeaderValue(proxyUsername, proxyPassword));
+		}
+
+		if (httpRequest.getHeaders() != null && httpRequest.getHeaders().size() > 0) {
+			if (debugLog) {
+				System.out.println("Request Headers: ");
+			}
+
+			for (final Entry<String, String> headerEntry : httpRequest.getHeaders().entrySet()) {
+				if (HTTP2_SKIPPED_REQUEST_HEADERS.contains(headerEntry.getKey().toLowerCase(Locale.ROOT))) {
+					if (debugLog) {
+						System.out.println("(skipped for HTTP/2) " + headerEntry.getKey() + ": " + headerEntry.getValue());
+					}
+					continue;
+				}
+
+				requestBuilder.setHeader(headerEntry.getKey(), headerEntry.getValue());
+
+				if (debugLog) {
+					System.out.println(headerEntry.getKey() + ": " + headerEntry.getValue());
+				}
+			}
+		}
+
+		final String cookieHeaderValue = createCookieHeaderValue(httpRequest);
+		if (cookieHeaderValue != null) {
+			requestBuilder.setHeader(HttpConstants.HTTPHEADERNAME_COOKIE, cookieHeaderValue);
+		}
+
+		// Content-Length is set by HttpClient itself from the BodyPublisher
+		final java.net.http.HttpRequest.BodyPublisher bodyPublisher;
+		if (httpRequest.getRequestBodyContentStream() != null) {
+			final InputStream requestBodyContentStream = httpRequest.getRequestBodyContentStream();
+			bodyPublisher = java.net.http.HttpRequest.BodyPublishers.ofInputStream(() -> requestBodyContentStream);
+		} else if (httpRequest.getRequestBody() != null) {
+			final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8
+					: httpRequest.getEncoding();
+			if (!hasRequestHeader(httpRequest, HttpConstants.HTTPHEADERNAME_CONTENTTYPE)) {
+				requestBuilder.setHeader(HttpConstants.HTTPHEADERNAME_CONTENTTYPE, "text/plain; charset=" + encoding);
+			}
+			bodyPublisher = java.net.http.HttpRequest.BodyPublishers.ofByteArray(httpRequest.getRequestBody().getBytes(encoding));
+		} else if (httpRequest.getUploadFileAttachments() != null
+				&& httpRequest.getUploadFileAttachments().size() > 0) {
+			final String boundary = HttpUtilities.generateBoundary();
+			requestBuilder.setHeader(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
+					HttpContentType.MultipartForm.getStringRepresentation() + "; boundary=" + boundary);
+			final ByteArrayOutputStream multipartBodyStream = new ByteArrayOutputStream();
+			writeMultipartBody(httpRequest, boundary, multipartBodyStream);
+			bodyPublisher = java.net.http.HttpRequest.BodyPublishers.ofByteArray(multipartBodyStream.toByteArray());
+		} else if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
+			if (!hasRequestHeader(httpRequest, HttpConstants.HTTPHEADERNAME_CONTENTTYPE)) {
+				requestBuilder.setHeader(HttpConstants.HTTPHEADERNAME_CONTENTTYPE,
+						HttpContentType.HtmlForm.getStringRepresentation());
+			}
+
+			final String httpRequestBody = convertToParameterString(httpRequest.getPostParameters(), null);
+
+			if (debugLog) {
+				System.out.println("Request Body: ");
+				System.out.println(httpRequestBody);
+			}
+
+			final Charset encoding = httpRequest.getEncoding() == null ? StandardCharsets.UTF_8
+					: httpRequest.getEncoding();
+			bodyPublisher = java.net.http.HttpRequest.BodyPublishers.ofByteArray(httpRequestBody.getBytes(encoding));
+		} else {
+			bodyPublisher = null;
+		}
+
+		String requestMethod = httpRequest.getRequestMethod() == null ? HttpMethod.GET.name() : httpRequest.getRequestMethod().name();
+		if (bodyPublisher != null && HttpMethod.GET.name().equals(requestMethod)) {
+			// Same behaviour as HttpURLConnection, which silently turns a GET request with a body into a POST request
+			requestMethod = HttpMethod.POST.name();
+		}
+		requestBuilder.method(requestMethod,
+				bodyPublisher == null ? java.net.http.HttpRequest.BodyPublishers.noBody() : bodyPublisher);
+
+		final HttpClient httpClient = httpClientBuilder.build();
+		try {
+			final java.net.http.HttpResponse<InputStream> response = httpClient.send(requestBuilder.build(),
+					java.net.http.HttpResponse.BodyHandlers.ofInputStream());
+			if (debugLog) {
+				System.out.println("Used HTTP version: " + response.version());
+			}
+			return new HttpClientResponse(httpClient, response);
+		} catch (final Exception e) {
+			closeHttpClient(httpClient);
+			throw e;
+		}
+	}
+
+	/**
+	 * Writes the multipart form data (post parameters and file attachments) of a request.
+	 */
+	private static void writeMultipartBody(final HttpRequest httpRequest, final String boundary, final OutputStream outputStream) throws IOException {
+		if (httpRequest.getPostParameters() != null && httpRequest.getPostParameters().size() > 0) {
+			for (final Entry<String, List<Object>> entry : httpRequest.getPostParameters().entrySet()) {
+				for (final Object value : entry.getValue()) {
+					outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+					outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\""
+							+ urlEncode(entry.getKey(), StandardCharsets.UTF_8) + "\"\r\n")
+									.getBytes(StandardCharsets.UTF_8));
+					outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+					if (value != null) {
+						outputStream.write(value.toString().getBytes(StandardCharsets.UTF_8));
+					}
+					outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+				}
+			}
+		}
+
+		for (final UploadFileAttachment uploadFileAttachment : httpRequest.getUploadFileAttachments()) {
+			outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+			// htmlInputName/fileName must be sanitized before being embedded in the Content-Disposition
+			// header: unlike the postParameters branch above (which URL-encodes the field name), these
+			// were previously written verbatim, so a name or filename containing '"' or CR/LF could
+			// break out of the header value and inject additional (attacker-controlled) header lines
+			// or multipart parts.
+			outputStream.write((HttpConstants.HTTPHEADERNAME_DISPOSITION + ": form-data; name=\""
+					+ escapeMultipartHeaderValue(uploadFileAttachment.getHtmlInputName()) + "\"; filename=\""
+					+ escapeMultipartHeaderValue(uploadFileAttachment.getFileName()) + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+			outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+
+			outputStream.write(uploadFileAttachment.getData());
+
+			outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+		}
+
+		outputStream.write(("--" + boundary + "--" + "\r\n").getBytes(StandardCharsets.UTF_8));
+	}
+
+	/**
+	 * True if the request defines a header with the given name (case insensitive).
+	 */
+	private static boolean hasRequestHeader(final HttpRequest httpRequest, final String headerName) {
+		if (httpRequest.getHeaders() != null) {
+			for (final String requestHeaderName : httpRequest.getHeaders().keySet()) {
+				if (headerName.equalsIgnoreCase(requestHeaderName)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Creates the value of the "Cookie" request header, or null if the request has no cookies.
+	 */
+	private static String createCookieHeaderValue(final HttpRequest httpRequest) {
+		if (httpRequest.getCookieData() == null || httpRequest.getCookieData().size() == 0) {
+			return null;
+		}
+		final StringBuilder cookieValue = new StringBuilder();
+		for (final Entry<String, String> cookieEntry : httpRequest.getCookieData().entrySet()) {
+			if (cookieValue.length() > 0) {
+				cookieValue.append("; ");
+			}
+			cookieValue.append(
+					encodeForCookie(cookieEntry.getKey()) + "=" + encodeForCookie(cookieEntry.getValue()));
+		}
+		return cookieValue.toString();
+	}
+
+	private static String createProxyAuthorizationHeaderValue(final String proxyUsername, final String proxyPassword) {
+		final String proxyCredentials = proxyUsername + ":" + proxyPassword;
+		return HttpConstants.AUTHORIZATIONHEADER_START_BASIC + " "
+				+ Base64.getEncoder().encodeToString(proxyCredentials.getBytes(StandardCharsets.UTF_8));
+	}
+
+	/**
+	 * Wraps a TrustManager (null for the system's default truststore), so that the certificate chain is
+	 * still checked, but not the host name. Needed for HttpClient, which has no HostnameVerifier.
+	 * <p>
+	 * The wrapper must be a {@link X509ExtendedTrustManager}: a plain {@link X509TrustManager} would be
+	 * wrapped by JSSE, which then checks the host name again.
+	 * </p>
+	 */
+	private static X509ExtendedTrustManager createTrustManagerWithoutHostnameVerification(final TrustManager trustManager) throws Exception {
+		final X509TrustManager delegateTrustManager;
+		if (trustManager == null) {
+			final TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+			trustManagerFactory.init((KeyStore) null);
+			X509TrustManager defaultTrustManager = null;
+			for (final TrustManager defaultTrustManagerCandidate : trustManagerFactory.getTrustManagers()) {
+				if (defaultTrustManagerCandidate instanceof final X509TrustManager x509TrustManager) {
+					defaultTrustManager = x509TrustManager;
+					break;
+				}
+			}
+			if (defaultTrustManager == null) {
+				throw new Exception("No default X509TrustManager available");
+			}
+			delegateTrustManager = defaultTrustManager;
+		} else if (trustManager instanceof final X509TrustManager x509TrustManager) {
+			delegateTrustManager = x509TrustManager;
+		} else {
+			throw new Exception("Unsupported TrustManager type '" + trustManager.getClass().getName() + "', X509TrustManager expected");
+		}
+
+		// The variants with Socket/SSLEngine are the ones doing the endpoint identification (host name check).
+		// They are redirected to the variants without, which only check the certificate chain.
+		return new X509ExtendedTrustManager() {
+			@Override
+			public void checkClientTrusted(final X509Certificate[] chain, final String authType) throws CertificateException {
+				delegateTrustManager.checkClientTrusted(chain, authType);
+			}
+
+			@Override
+			public void checkServerTrusted(final X509Certificate[] chain, final String authType) throws CertificateException {
+				delegateTrustManager.checkServerTrusted(chain, authType);
+			}
+
+			@Override
+			public void checkClientTrusted(final X509Certificate[] chain, final String authType, final Socket socket) throws CertificateException {
+				delegateTrustManager.checkClientTrusted(chain, authType);
+			}
+
+			@Override
+			public void checkServerTrusted(final X509Certificate[] chain, final String authType, final Socket socket) throws CertificateException {
+				delegateTrustManager.checkServerTrusted(chain, authType);
+			}
+
+			@Override
+			public void checkClientTrusted(final X509Certificate[] chain, final String authType, final SSLEngine engine) throws CertificateException {
+				delegateTrustManager.checkClientTrusted(chain, authType);
+			}
+
+			@Override
+			public void checkServerTrusted(final X509Certificate[] chain, final String authType, final SSLEngine engine) throws CertificateException {
+				delegateTrustManager.checkServerTrusted(chain, authType);
+			}
+
+			@Override
+			public X509Certificate[] getAcceptedIssuers() {
+				return delegateTrustManager.getAcceptedIssuers();
+			}
+		};
+	}
+
+	/**
+	 * HttpClient only implements AutoCloseable since Java 21. On older Java versions its resources are
+	 * released as soon as it is no longer referenced.
+	 */
+	private static void closeHttpClient(final HttpClient httpClient) {
+		if (httpClient instanceof final AutoCloseable closeableHttpClient) {
+			try {
+				closeableHttpClient.close();
+			} catch (@SuppressWarnings("unused") final Exception e) {
+				// Do nothing
+			}
+		}
+	}
+
+	/**
+	 * Transport independent access to a received response.
+	 */
+	private interface ReceivedResponse extends AutoCloseable {
+		int getStatusCode() throws IOException;
+
+		String getStatusMessage() throws IOException;
+
+		/**
+		 * All response headers, multiple values per name possible. Keys may be null or HTTP/2 pseudo headers.
+		 */
+		Map<String, List<String>> getHeaderFields();
+
+		/**
+		 * The response body, for status codes &gt;= 400 the error body. May be null.
+		 */
+		InputStream getBodyStream() throws IOException;
+
+		String getContentType();
+
+		String getIpAddress();
+
+		/**
+		 * The HTTP version actually used for the response, e.g. after a fallback from HTTP/2 to HTTP/1.1.
+		 */
+		HttpVersion getHttpVersion();
+
+		@Override
+		void close();
+	}
+
+	private static final class HttpUrlConnectionResponse implements ReceivedResponse {
+		private final HttpURLConnection urlConnection;
+
+		private HttpUrlConnectionResponse(final HttpURLConnection urlConnection) {
+			this.urlConnection = urlConnection;
+		}
+
+		@Override
+		public int getStatusCode() throws IOException {
+			return urlConnection.getResponseCode();
+		}
+
+		@Override
+		public String getStatusMessage() throws IOException {
+			return urlConnection.getResponseMessage();
+		}
+
+		@Override
+		public Map<String, List<String>> getHeaderFields() {
+			return urlConnection.getHeaderFields();
+		}
+
+		@Override
+		public InputStream getBodyStream() throws IOException {
+			if (urlConnection.getResponseCode() < HttpURLConnection.HTTP_BAD_REQUEST) {
+				return urlConnection.getInputStream();
+			} else {
+				return urlConnection.getErrorStream();
+			}
+		}
+
+		@Override
+		public String getContentType() {
+			return urlConnection.getContentType();
+		}
+
+		@Override
+		public String getIpAddress() {
+			return HttpUtilities.getIpAddress(urlConnection);
+		}
+
+		@Override
+		public HttpVersion getHttpVersion() {
+			// HttpURLConnection always sends HTTP/1.1, but an old server may answer with HTTP/1.0.
+			// The status line (e.g. "HTTP/1.0 200 OK") is exposed as header field 0.
+			final String statusLine = urlConnection.getHeaderField(0);
+			if (statusLine != null && statusLine.trim().toUpperCase(Locale.ROOT).startsWith("HTTP/1.0")) {
+				return HttpVersion.HTTP_1_0;
+			} else {
+				return HttpVersion.HTTP_1_1;
+			}
+		}
+
+		@Override
+		public void close() {
+			// Nothing to do: the connection is kept for reuse (keep-alive) by HttpURLConnection
+		}
+	}
+
+	private static final class HttpClientResponse implements ReceivedResponse {
+		private final HttpClient httpClient;
+		private final java.net.http.HttpResponse<InputStream> response;
+
+		private HttpClientResponse(final HttpClient httpClient, final java.net.http.HttpResponse<InputStream> response) {
+			this.httpClient = httpClient;
+			this.response = response;
+		}
+
+		@Override
+		public int getStatusCode() {
+			return response.statusCode();
+		}
+
+		@Override
+		public String getStatusMessage() {
+			// HTTP/2 has no reason phrase, so the standard text is used
+			return getHttpStatusText(response.statusCode());
+		}
+
+		@Override
+		public Map<String, List<String>> getHeaderFields() {
+			return response.headers().map();
+		}
+
+		@Override
+		public InputStream getBodyStream() {
+			return response.body();
+		}
+
+		@Override
+		public String getContentType() {
+			return response.headers().firstValue(HttpConstants.HTTPHEADERNAME_CONTENTTYPE).orElse(null);
+		}
+
+		@Override
+		public String getIpAddress() {
+			return HttpUtilities.getIpAddress(response.headers().firstValue("X-Real-IP").orElse(null),
+					response.headers().firstValue("X-Forwarded-For").orElse(null), response.uri().getHost());
+		}
+
+		@Override
+		public HttpVersion getHttpVersion() {
+			// HTTP_1_1 if the server did not support HTTP/2 and HttpClient fell back
+			return response.version() == HttpClient.Version.HTTP_2 ? HttpVersion.HTTP_2 : HttpVersion.HTTP_1_1;
+		}
+
+		@Override
+		public void close() {
+			// Closing the body stream also cancels an unread HTTP/2 stream (e.g. for redirects)
+			try {
+				if (response.body() != null) {
+					response.body().close();
+				}
+			} catch (@SuppressWarnings("unused") final IOException e) {
+				// Do nothing
+			}
+			closeHttpClient(httpClient);
 		}
 	}
 
@@ -1430,17 +1863,25 @@ public class HttpUtilities {
 	 */
 	public static String getIpAddress(final HttpURLConnection connection) {
 		try {
-			String ip = connection.getHeaderField("X-Real-IP");
+			return getIpAddress(connection.getHeaderField("X-Real-IP"), connection.getHeaderField("X-Forwarded-For"),
+					connection.getURL().getHost());
+		} catch (@SuppressWarnings("unused") final Exception e) {
+			return null;
+		}
+	}
+
+	private static String getIpAddress(final String realIpHeaderValue, final String forwardedForHeaderValue, final String host) {
+		try {
+			String ip = realIpHeaderValue;
 
 			if (ip == null) {
-				ip = connection.getHeaderField("X-Forwarded-For");
+				ip = forwardedForHeaderValue;
 				if (ip != null) {
 					ip = ip.split(",")[0].trim();
 				}
 			}
 
 			if (ip == null) {
-				final String host = connection.getURL().getHost();
 				final InetAddress address = InetAddress.getByName(host);
 				ip = address.getHostAddress();
 			}
