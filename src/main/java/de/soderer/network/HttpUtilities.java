@@ -845,7 +845,7 @@ public class HttpUtilities {
 				cookieValue.append("; ");
 			}
 			cookieValue.append(
-					encodeForCookie(cookieEntry.getKey()) + "=" + encodeForCookie(cookieEntry.getValue()));
+					encodeCookieName(cookieEntry.getKey()) + "=" + encodeCookieValue(cookieEntry.getValue()));
 		}
 		return cookieValue.toString();
 	}
@@ -1732,11 +1732,26 @@ public class HttpUtilities {
 		}
 	}
 
-	private static String encodeForCookie(final String value) {
+	/**
+	 * Escapes the characters of a cookie name that would break the "Cookie" header ("name=value; ...").
+	 */
+	private static String encodeCookieName(final String name) {
+		if (name == null) {
+			return name;
+		} else {
+			return name.replace(";", "%3B").replace("=", "%3D");
+		}
+	}
+
+	/**
+	 * Escapes the characters of a cookie value that would break the "Cookie" header. "=" is allowed in cookie values
+	 * (RFC 6265, e.g. Base64 padding) and is sent unchanged, because servers compare the value literally.
+	 */
+	private static String encodeCookieValue(final String value) {
 		if (value == null) {
 			return value;
 		} else {
-			return value.replace(";", "%3B").replace("=", "%3D");
+			return value.replace(";", "%3B");
 		}
 	}
 
@@ -1851,6 +1866,109 @@ public class HttpUtilities {
 			}
 			return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(proxyHost, Integer.parseInt(proxyPort)));
 		}
+	}
+
+	/**
+	 * Validates a proxy URL as accepted by {@link #createProxy(String)}, without any DNS lookup.
+	 *
+	 * @param proxyUrl
+	 *            the proxy URL
+	 * @throws IllegalArgumentException
+	 *             with a readable message if the value is invalid
+	 */
+	public static void validateProxyUrl(final String proxyUrl) {
+		if (proxyUrl != null && !proxyUrl.isBlank() && !isDirectProxyValue(proxyUrl)) {
+			parseProxyUri(proxyUrl);
+		}
+	}
+
+	/**
+	 * Creates the proxy of a strictly checked proxy URL. In contrast to {@link #getProxyFromString(String)}, a missing
+	 * port or path is an error and an empty value means "no explicit proxy" (see {@link #resolveProxy(String, URI)}).
+	 *
+	 * @param proxyUrl
+	 *            null or blank: no explicit proxy; "none"/"direct": no proxy; otherwise "http://host:port" or "host:port"
+	 *            (plain HTTP proxy without credentials)
+	 * @return null if no proxy URL is given (the caller decides about its default), {@link Proxy#NO_PROXY} for
+	 *         "none"/"direct", otherwise an HTTP proxy
+	 * @throws IllegalArgumentException
+	 *             if the proxy URL is invalid
+	 */
+	public static Proxy createProxy(final String proxyUrl) {
+		if (proxyUrl == null || proxyUrl.isBlank()) {
+			return null;
+		} else if (isDirectProxyValue(proxyUrl)) {
+			return Proxy.NO_PROXY;
+		} else {
+			final URI proxyUri = parseProxyUri(proxyUrl);
+			return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort()));
+		}
+	}
+
+	/**
+	 * Determines the proxy for a request: the proxy of the proxy URL (see {@link #createProxy(String)}), or the system
+	 * proxy settings (JVM properties like "https.proxyHost", "-Djava.net.useSystemProxies=true") if no proxy URL is
+	 * given.
+	 *
+	 * @param proxyUrl
+	 *            null or blank for the system proxy settings, "none"/"direct" for a direct connection, otherwise
+	 *            "http://host:port" or "host:port"
+	 * @param targetUri
+	 *            the URI of the request (the system settings may depend on it)
+	 * @return the proxy to use, never null ({@link Proxy#NO_PROXY} for a direct connection)
+	 * @throws IllegalArgumentException
+	 *             if the proxy URL is invalid
+	 */
+	public static Proxy resolveProxy(final String proxyUrl, final URI targetUri) {
+		final Proxy explicitProxy = createProxy(proxyUrl);
+		if (explicitProxy != null) {
+			return explicitProxy;
+		}
+		final ProxySelector systemProxySelector = ProxySelector.getDefault();
+		final List<Proxy> proxies = systemProxySelector == null ? null : systemProxySelector.select(targetUri);
+		return proxies == null || proxies.isEmpty() ? Proxy.NO_PROXY : proxies.get(0);
+	}
+
+	/**
+	 * Checks whether a proxy URL means "no proxy at all" (direct connection, ignoring the system proxy settings).
+	 */
+	private static boolean isDirectProxyValue(final String proxyUrl) {
+		final String trimmed = proxyUrl.trim();
+		return "none".equalsIgnoreCase(trimmed) || "direct".equalsIgnoreCase(trimmed);
+	}
+
+	/**
+	 * Parses and checks an HTTP proxy URL. Only plain HTTP proxies without credentials are supported, because the
+	 * HTTP/2 transport (java.net.http.HttpClient) does not support SOCKS proxies.
+	 */
+	private static URI parseProxyUri(final String proxyUrl) {
+		String value = proxyUrl.trim();
+		if (!value.contains("://")) {
+			value = "http://" + value;
+		}
+		final URI proxyUri;
+		try {
+			proxyUri = new URI(value);
+		} catch (@SuppressWarnings("unused") final java.net.URISyntaxException e) {
+			throw new IllegalArgumentException("Invalid proxy URL: " + proxyUrl);
+		}
+		if (!"http".equalsIgnoreCase(proxyUri.getScheme())) {
+			throw new IllegalArgumentException("Unsupported proxy scheme \"" + proxyUri.getScheme() + "\" (only http proxies are supported): " + proxyUrl);
+		}
+		if (proxyUri.getRawUserInfo() != null) {
+			throw new IllegalArgumentException("Credentials in the proxy URL are not supported: " + proxyUri.getHost());
+		}
+		if (proxyUri.getHost() == null || proxyUri.getHost().isBlank()) {
+			throw new IllegalArgumentException("Missing host in proxy URL: " + proxyUrl);
+		}
+		if (proxyUri.getPort() < 1 || proxyUri.getPort() > 65535) {
+			throw new IllegalArgumentException("Missing or invalid port in proxy URL (e.g. http://proxy:3128): " + proxyUrl);
+		}
+		final String path = proxyUri.getRawPath();
+		if ((path != null && !path.isEmpty() && !"/".equals(path)) || proxyUri.getRawQuery() != null || proxyUri.getRawFragment() != null) {
+			throw new IllegalArgumentException("Proxy URL must not contain a path, query or fragment: " + proxyUrl);
+		}
+		return proxyUri;
 	}
 
 	/**

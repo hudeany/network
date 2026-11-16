@@ -224,7 +224,8 @@ public class HttpUtilitiesExecuteTest {
 		request.addCookieData("second", "2");
 		final HttpResponse response = HttpUtilities.executeHttpRequest(request);
 
-		assertEquals("na%3Bme=va%3Dlue; second=2", receivedHeader("Cookie"));
+		// "=" within a cookie value is allowed (RFC 6265) and sent unchanged, within a name it is escaped
+		assertEquals("na%3Bme=va=lue; second=2", receivedHeader("Cookie"));
 		final Map<String, String> cookies = response.getCookies();
 		assertEquals(2, cookies.size());
 		assertEquals("abc def=x", cookies.get("sid"));

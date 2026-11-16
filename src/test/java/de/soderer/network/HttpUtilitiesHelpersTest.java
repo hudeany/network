@@ -223,8 +223,12 @@ public class HttpUtilitiesHelpersTest {
 	}
 
 	@Test
-	public void testEncodeForCookieKeepsNull() throws Exception {
-		assertNull(invokePrivate("encodeForCookie", new Class<?>[] { String.class }, (Object) null));
-		assertEquals("a%3Bb%3Dc", invokePrivate("encodeForCookie", new Class<?>[] { String.class }, "a;b=c"));
+	public void testEncodeCookieNameAndValue() throws Exception {
+		assertNull(invokePrivate("encodeCookieName", new Class<?>[] { String.class }, (Object) null));
+		assertEquals("a%3Bb%3Dc", invokePrivate("encodeCookieName", new Class<?>[] { String.class }, "a;b=c"));
+		assertNull(invokePrivate("encodeCookieValue", new Class<?>[] { String.class }, (Object) null));
+		// "=" is allowed within cookie values, e.g. Base64 padding
+		assertEquals("a%3Bb=c", invokePrivate("encodeCookieValue", new Class<?>[] { String.class }, "a;b=c"));
+		assertEquals("YWJjZA==", invokePrivate("encodeCookieValue", new Class<?>[] { String.class }, "YWJjZA=="));
 	}
 }
